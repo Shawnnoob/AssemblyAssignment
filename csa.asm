@@ -1,6 +1,6 @@
 .model small
 .stack 100
-.data
+.data                                        ;这玩意不懂跑到没有
     username db "admin","$"
     password db "password","$"
     input_username db 10 dup (?)
