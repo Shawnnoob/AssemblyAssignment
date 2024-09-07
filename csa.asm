@@ -1,6 +1,13 @@
 .model small
 .stack 100h
 .data
+    company_name db "===================="
+                 db 0dh,0ah
+                 db "|    ABC Retail    |"
+                 db 0dh,0ah
+                 db "--------------------"
+                 db 0dh,0ah,"$"
+    newline db 0dh,0ah,"$"
     username db "admin", 0
     password db "password", 0
     input_buffer db 20, ?, 20 dup(0)
@@ -8,12 +15,16 @@
     prompt_pass db "Enter password: $"
     msg_success db "Login successful!$"
     msg_failure db "Login failed. Try again.$"
-    newline db 0Dh, 0Ah, "$"
 
 .code
 main proc
     mov ax, @data
     mov ds, ax
+
+    ; Display store name
+    mov ah, 09h
+    lea dx, company_name
+    int 21h
 
     ; Prompt for username
     mov ah, 09h
