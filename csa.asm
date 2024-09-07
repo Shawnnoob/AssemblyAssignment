@@ -1,84 +1,100 @@
 .model small
-.stack 100
-.data                                        ;这玩意不懂跑到没有
-    username db "admin","$"
-    password db "password","$"
-    input_username db 10 dup (?)
-    input_password db 10 dup (?)
-    welcome_message db 'Welcome to ABC Retail Store!', 0
-    invalid_message db 'Invalid username or password. Try again.', 0
+.stack 100h
+.data
+    username db "admin", 0
+    password db "password", 0
+    input_buffer db 20, ?, 20 dup(0)
+    prompt_user db "Enter username: $"
+    prompt_pass db "Enter password: $"
+    msg_success db "Login successful!$"
+    msg_failure db "Login failed. Try again.$"
+    newline db 0Dh, 0Ah, "$"
 
 .code
-start:
+main proc
     mov ax, @data
     mov ds, ax
 
-    ; clear screen
-    mov ax, 0600h
-    mov bh, 07h
-    mov cx, 0000h
-    mov dx, 184fh
-    int 10h
-
-    ; print welcome message
+    ; Prompt for username
     mov ah, 09h
-    mov dx, offset welcome_message
+    lea dx, prompt_user
     int 21h
 
-    ; print login prompt
+    ; Get username input
+    mov ah, 0Ah
+    lea dx, input_buffer
+    int 21h
+
+    ; Print newline
     mov ah, 09h
-    mov dx, offset login_prompt
+    lea dx, newline
     int 21h
 
-login_loop:
-    ; get username
-    mov ah, 0ah
-    mov dx, offset input_username
-    int 21h
-
-    ; get password
-    mov ah, 0ah
-    mov dx, offset input_password
-    int 21h
-
-    ; compare username and password
+    ; Compare username
     mov si, offset username
-    mov di, offset input_username
-    mov cx, 5
-    repe cmpsb
-    jne invalid_login
+    lea di, input_buffer + 2
+    call compare_strings
+    jnz login_failed
 
+    ; Prompt for password
+    mov ah, 09h
+    lea dx, prompt_pass
+    int 21h
+
+    ; Get password input
+    mov ah, 0Ah
+    lea dx, input_buffer
+    int 21h
+
+    ; Print newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; Compare password
     mov si, offset password
-    mov di, offset input_password
-    mov cx, 8
-    repe cmpsb
-    jne invalid_login
+    lea di, input_buffer + 2
+    call compare_strings
+    jnz login_failed
 
-    ; valid login, print welcome message
+    ; Login successful
     mov ah, 09h
-    mov dx, offset welcome_message
+    lea dx, msg_success
     int 21h
-
-    ; print store name
-    mov ah, 09h
-    mov dx, offset store_name
-    int 21h
-
     jmp exit
 
-invalid_login:
-    ; invalid login, print error message
+login_failed:
     mov ah, 09h
-    mov dx, offset invalid_message
+    lea dx, msg_failure
     int 21h
-    jmp login_loop
 
 exit:
-    ; exit program
-    mov ah, 4ch
+    mov ax, 4C00h
     int 21h
 
-login_prompt db 'Username: $'
-store_name db '         ABC Retail Store         ', 0
+main endp
 
-end start
+compare_strings proc
+    push cx
+    mov cl, [di-1]  ; get length of input
+    xor ch, ch
+compare_loop:
+    mov al, [si]
+    cmp al, [di]
+    jne compare_end
+    test al, al  ; check for null terminator
+    jz compare_match
+    inc si
+    inc di
+    loop compare_loop
+compare_match:
+    pop cx
+    xor ax, ax  ; Clear ZF (set to 0 for match)
+    ret
+compare_end:
+    pop cx
+    or ax, ax  ; Set ZF to 1 for no match
+    ret
+compare_strings endp
+
+end main
