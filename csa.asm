@@ -19,7 +19,15 @@
     attempts db 3  ; Counter for login attempts
 
 .code
+
 main proc
+    mov ax, @data
+    mov ds, ax
+
+    call login
+main endp
+
+login proc
     mov ax, @data
     mov ds, ax
 
@@ -104,9 +112,9 @@ exit:
     mov ax, 4C00h
     int 21h
 
-main endp
+login endp
 
-compare_strings proc
+compare_strings proc ; COMPARE TWO STRINGS
     push cx
     mov cl, [di-1]  ; get length of input
     xor ch, ch
