@@ -10,6 +10,10 @@
     newline db 0dh,0ah,"$"
     username db "admin", 0
     password db "password", 0
+    product db "Shampoo, 15.99"
+            db "Tissue, 1.99"
+            db "Hair Gel, 15.99"
+            db "Lotion, 10.99"
     input_buffer db 20, ?, 20 dup(0)
     prompt_user db "Enter username: $"
     prompt_pass db "Enter password: $"
@@ -25,6 +29,8 @@ main proc
     mov ds, ax
 
     call login
+
+
 main endp
 
 login proc
@@ -83,10 +89,8 @@ login_loop:
     call compare_strings
     jnz login_failed
 
-    ; Login successful
-    mov ah, 09h
-    lea dx, msg_success
-    int 21h
+    ; Call success_login_menu procedure
+    call success_login_menu
     jmp exit
 
 login_failed:
@@ -113,6 +117,21 @@ exit:
     int 21h
 
 login endp
+
+success_login_menu proc
+    mov ah, 06h  ; scroll up function
+    mov al, 0    ; clear entire screen
+    mov bh, 07h  ; attribute (white on black)
+    mov cx, 0    ; start at row 0, column 0
+    mov dh, 24   ; end at row 24 (bottom of screen)
+    mov dl, 79   ; end at column 79 (right edge of screen)
+    int 10h      ; execute BIOS video interrupt
+
+    ; Login successful
+    mov ah, 09h
+    lea dx, msg_success
+    int 21h
+success_login_menu endp
 
 compare_strings proc ; COMPARE TWO STRINGS
     push cx
