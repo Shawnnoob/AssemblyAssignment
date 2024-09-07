@@ -15,6 +15,8 @@
     prompt_pass db "Enter password: $"
     msg_success db "Login successful!$"
     msg_failure db "Login failed. Try again.$"
+    msg_attempts db "Too many failed attempts. Exiting...$"
+    attempts db 3  ; Counter for login attempts
 
 .code
 main proc
@@ -25,6 +27,11 @@ main proc
     mov ah, 09h
     lea dx, company_name
     int 21h
+
+login_loop:
+    ; Check if attempts are exhausted
+    cmp attempts, 0
+    je too_many_attempts
 
     ; Prompt for username
     mov ah, 09h
@@ -77,6 +84,20 @@ main proc
 login_failed:
     mov ah, 09h
     lea dx, msg_failure
+    int 21h
+
+    ; Print newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; Decrease attempts counter
+    dec attempts
+    jmp login_loop
+
+too_many_attempts:
+    mov ah, 09h
+    lea dx, msg_attempts
     int 21h
 
 exit:
