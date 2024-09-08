@@ -135,7 +135,7 @@ display_company_colour_name proc
     int 10h
 
     ; Set up for colored text display
-    mov bl, 3            ; Text color: cyan (3) on black background (0)
+    mov bl, 10            ; Text color: light green (10) on black background (0)
 
     mov si, offset company_name  ; Point SI to the start of company_name string
     mov dh, 0            ; Start at row 0
