@@ -2,11 +2,8 @@
 .stack 100h
 .data
     company_name db "====================", 0dh, 0ah
-                 ;db 0dh,0ah
                  db "|    ABC Retail    |", 0dh, 0ah
-                 ;db 0dh,0ah
                  db "--------------------", 0dh, 0ah, 0
-                 ;db 0dh,0ah,"$"
     newline db 0dh,0ah,"$"
     username db "admin", 0
     password db "password", 0
@@ -141,6 +138,8 @@ display_company_colour_name proc
     mov bl, 3            ; Text color: cyan (3) on black background (0)
 
     mov si, offset company_name  ; Point SI to the start of company_name string
+    mov dh, 0            ; Start at row 0
+    mov dl, 0            ; Start at column 0
 
     ; Start displaying characters
 company_name_loop:
@@ -149,31 +148,32 @@ company_name_loop:
     cmp al, 0            ; Check for end of string (null terminator)
     je done              ; If end of string, exit the loop
 
+    cmp al, 0Dh          ; Check if the character is a carriage return (ASCII code 0Dh)
+    je skip_char         ; If carriage return, skip to next character
+
     cmp al, 0Ah          ; Check if the character is a newline (ASCII code 0Ah)
-    jne company_colour_char       ; If not a newline, proceed to print the character
+    jne print_char       ; If not a newline, proceed to print the character
 
     ; Handle newline character
-    mov ah, 02h                 ; Function to set cursor position
-    inc dh                      ; Move cursor to next row
-    mov dl, 0                   ; Reset cursor to first column
-    int 10h                     ; Call BIOS interrupt to update cursor position
-    jmp company_name_loop       ; Continue with the next character
+    inc dh               ; Move cursor to next row
+    mov dl, 0            ; Reset cursor to first column
+    jmp set_cursor
 
-company_colour_char:
+print_char:
     ; Print the character with color
     mov ah, 09h          ; BIOS function to write character and attribute
     mov bh, 0            ; Display page number (0)
-    mov bl, 3            ; Text attribute (color)
     mov cx, 1            ; Number of times to print the character (once)
     int 10h              ; Call BIOS interrupt to display the character
 
-    ; Automatically move cursor to next position
-    mov ah, 03h          ; Get cursor position
-    int 10h              ; Call BIOS interrupt to get current position
     inc dl               ; Move cursor to next column
+
+set_cursor:
     mov ah, 02h          ; Set cursor position
+    mov bh, 0            ; Page number
     int 10h              ; Call BIOS interrupt to set new position
 
+skip_char:
     jmp company_name_loop       ; Continue with the next character
 
 done:
