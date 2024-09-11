@@ -13,28 +13,58 @@
     newline db 0dh,0ah,"$"
     username db "admin", 0
     password db "password", 0
-    product db "Shampoo, 15.99", 0
-            db "Tissue, 1.99", 0
-            db "Hair Gel, 15.99", 0
-            db "Lotion, 10.99", 0
-    ;input_buffer db 20, ?, 20 dup(0)    ; First byte: maximum input size is 20
-                                        ; Second byte: store user input size
-                                        ; Third byte: Space for input characters (Initializes 20 '0's)
-                                        ; Input is terminated by a newline (0dh,0ah)
-    input_buffer label byte
+
+    product_menu db "==========================================", 0dh, 0ah 
+                 db "|         Products           |   Price   |", 0dh, 0ah
+                 db "|----------------------------|-----------|", 0dh, 0ah
+                 db "| 1. Tissue                  |    1.20   |", 0dh, 0ah
+                 db "| 2. Toothpaste              |   12.20   |", 0dh, 0ah
+                 db "| 3. Body Wash               |   15.90   |", 0dh, 0ah
+                 db "| 4. Cotton Buds             |    1.00   |", 0dh, 0ah
+                 db "------------------------------------------", 0dh, 0ah, 0
+
+    ; Products: ID (1 byte), Name (20 bytes), Price (2 bytes in cents for easier calculations)
+    products db 1, "Tissue              ", 120    ; $1.20
+             dw 2, "Toothpaste          ", 1220   ; $12.20
+             dw 3, "Body Wash           ", 1590   ; $15.90
+             db 4, "Cotton Buds         ", 100    ; $1.00
+
+    product_count db 4
+    product_size equ 23 ; 1 + 20 + 2 = length of product (bytes)
+
+    ; Variables for accessing current/chosen product information
+    current_product dw ?
+    product_id db ?
+    product_name db 20 dup(?)
+    product_price dw ?
+
+    price_string db 10 dup(0)  ; Buffer to hold the price string
+     prompt_product_id db "Enter product ID: $"
+    prompt_more_products db 13, 10, "Do you want to purchase more products? (Y/N): $"
+    selected_product_msg db 13, 10, "Selected product: $"
+    msg_invalid_product db 13, 10, "Invalid product ID. Please try again.", 13, 10, "$"
+
+    input_buffer label byte ; User input characters (strings)
     maxlen db 20
     actlen db ?
     inputdata db 20 dup (0)
+
+    ; Data for transaction function
+    total dw 0
+    total_str db 6 dup(0), '$'
+    prompt_quantity db "Enter quantity (1-3): $"
+    msg_invalid_quantity db "Invalid quantity. Please enter 1, 2, or 3.", 0Dh, 0Ah, "$"
+    msg_total db "Total: $", 0Dh, 0Ah, "$"
 
     prompt_user db "Enter username: $"
     prompt_pass db "Enter password: $"
     msg_success db "Login successful!"
                 db 0dh, 0ah, "$"
-    msg_failure db "Login failed. Try again.$"
+    msg_failure db "Login failed. Exiting program.$"
     msg_attempts db "Too many failed attempts. Exiting...$"
     attempts db 3  ; Counter for login attempts
-    prompt_choice db "Enter your choice (1-4): $"
-    invalid_input db "Invalid input. Please try again."
+    prompt_choice_1 db "Enter your choice (1-4): $"
+    invalid_input db "Invalid input. Enter to try again with a correct number."
                   db 0dh, 0ah, "$"
     msg_exit db "Exiting program. Thank you for using ABC Retail!"
              db 0dh, 0ah, "$"
@@ -53,9 +83,7 @@ main proc
 
 main endp
 
-login proc
-    mov ax, @data
-    mov ds, ax
+login proc ;Login - Thee Hao Siang
 
     ;Display colored store name
     call display_company_colour_name
@@ -71,6 +99,12 @@ login_loop:
     mov ah, 0Ah
     lea dx, input_buffer ; store user input in dx
     int 21h
+
+    ; Null-terminate the string after the input length
+    lea di, inputdata
+    mov cl, [input_buffer + 1] ; Get length of user input
+    add di, cx                ; Move DI to the end of the input string
+    mov byte ptr [di], 0      ; Null-terminate the input
 
     ; Compare username
     lea si, username ; move username to si
@@ -92,6 +126,12 @@ login_loop:
     mov ah, 0Ah
     lea dx, input_buffer
     int 21h
+
+    ; Null-terminate the string after the input length
+    lea di, inputdata
+    mov cl, [input_buffer + 1] ; Get length of user input
+    add di, cx                ; Move DI to the end of the input string
+    mov byte ptr [di], 0      ; Null-terminate the input
 
     ; Compare password
     lea si, password
@@ -139,8 +179,7 @@ exit:
 
 login endp
 
-
-success_login_menu proc
+success_login_menu proc ;Login Success - Thee Hao Siang
     ; Clear the screen
     mov ah, 06h  ; scroll up function
     mov al, 0    ; clear entire screen
@@ -172,7 +211,7 @@ menu_loop:
 
     ; Prompt for user input
     mov ah, 09h
-    lea dx, prompt_choice
+    lea dx, prompt_choice_1
     int 21h
 
     ; Get user input
@@ -189,6 +228,11 @@ menu_loop:
     cmp al, '4'
     je exit_program
 
+    ; Print newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
     ; If we get here, input was invalid
     mov ah, 09h
     lea dx, invalid_input
@@ -201,7 +245,7 @@ menu_loop:
     jmp menu_loop
 
 option_1:
-    ; Placeholder for Start transaction
+    call transaction
     jmp menu_loop
 
 option_2:
@@ -217,7 +261,256 @@ exit_program:
 
 success_login_menu endp
 
-display_company_colour_name proc
+transaction proc ;Transaction - Thee Hao Siang
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    ; Clear the screen
+    mov ah, 06h
+    xor al, al
+    xor cx, cx
+    mov dx, 184Fh
+    mov bh, 07h
+    int 10h
+
+    ; Display company logo
+    call display_company_colour_name
+
+    ; Initialize total
+    mov word ptr [total], 0
+
+transaction_loop:
+    ; Display product menu
+    mov ah, 09h
+    lea dx, product_menu
+    int 21h
+
+    ; Ask user to enter product ID
+    mov ah, 09h
+    lea dx, prompt_product_id
+    int 21h
+
+    ; Get product ID input
+    mov ah, 01h
+    int 21h
+    sub al, '0'  ; Convert ASCII to number
+    dec al       ; Convert to 0-based index
+    mov bl, al
+
+    ; Validate product ID
+    cmp bl, 0
+    jl invalid_product
+    cmp bl, [product_count]
+    jge invalid_product
+
+    ; Load product info
+    call load_product_info
+
+    ; Display selected product
+    mov ah, 09h
+    lea dx, selected_product_msg
+    int 21h
+    lea dx, product_name
+    int 21h
+
+    ; Ask for quantity
+    mov ah, 09h
+    lea dx, prompt_quantity
+    int 21h
+
+    ; Get quantity input
+    mov ah, 01h
+    int 21h
+    sub al, '0'  ; Convert ASCII to number
+
+    ; Validate quantity (1-3)
+    cmp al, 1
+    jl invalid_quantity
+    cmp al, 3
+    jg invalid_quantity
+
+    ; Calculate price
+    mov bl, al  ; Store quantity in BL
+    mov ax, [product_price]
+    mul bx
+    add [total], ax
+
+    ; Ask if user wants to purchase more
+    mov ah, 09h
+    lea dx, prompt_more_products
+    int 21h
+
+    ; Get user input (Y/N)
+    mov ah, 01h
+    int 21h
+    cmp al, 'Y'
+    je transaction_loop
+    cmp al, 'y'
+    je transaction_loop
+
+    ; Transaction complete
+    jmp transaction_complete
+
+invalid_product:
+    mov ah, 09h
+    lea dx, msg_invalid_product
+    int 21h
+    jmp transaction_loop
+
+invalid_quantity:
+    mov ah, 09h
+    lea dx, msg_invalid_quantity
+    int 21h
+    jmp transaction_loop
+
+transaction_complete:
+    ; Transaction complete, total is saved in [total]
+    ; (Code for displaying receipt would go here)
+
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+transaction endp
+
+price_to_string proc
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    ; AX contains the price in cents
+    mov bx, 100
+    xor dx, dx
+    div bx      ; AX now contains dollars, DX contains cents
+
+    ; Convert dollars to string
+    mov si, offset price_string
+    call number_to_string
+
+    ; Add decimal point
+    mov byte ptr [si], '.'
+    inc si
+
+    ; Convert cents to string
+    mov ax, dx
+    mov cx, 2   ; We want two digits for cents
+    call number_to_string_padded
+
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+price_to_string endp
+
+; Convert number in AX to string at [SI], null-terminated
+number_to_string proc
+    push ax
+    push bx
+    push cx
+    push dx
+
+    mov bx, 10
+    xor cx, cx
+
+divide_loop:
+    xor dx, dx
+    div bx
+    push dx
+    inc cx
+    test ax, ax
+    jnz divide_loop
+
+store_loop:
+    pop dx
+    add dl, '0'
+    mov [si], dl
+    inc si
+    loop store_loop
+
+    mov byte ptr [si], 0  ; Null terminator
+
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+number_to_string endp
+
+; Convert number in AX to string at [SI], padding with leading zeros if necessary
+; CX contains the desired string length
+number_to_string_padded proc
+    push ax
+    push bx
+    push dx
+
+    mov bx, 10
+    add si, cx   ; Point to the end of the string
+    dec si
+
+pad_loop:
+    xor dx, dx
+    div bx
+    add dl, '0'
+    mov [si], dl
+    dec si
+    loop pad_loop
+
+    pop dx
+    pop bx
+    pop ax
+    ret
+number_to_string_padded endp
+
+; Load product information for the nth product (0-based index) into helper variables
+load_product_info proc
+    push ax
+    push bx
+    push si
+    push di
+    push cx
+    
+    ; Calculate product address
+    xor ah, ah
+    mov al, product_size
+    mul bl  ; BL contains the product index
+    add ax, offset products
+    mov si, ax
+    
+    ; Load ID
+    mov al, [si]
+    mov [product_id], al
+    inc si
+    
+    ; Load Name
+    mov di, offset product_name
+    mov cx, 20
+    rep movsb
+    
+    ; Load Price
+    mov ax, [si]
+    mov [product_price], ax
+    
+    pop cx
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+load_product_info endp
+
+display_company_colour_name proc ;Thee Chern Hao
     ; Save registers to preserve their original values
     push ax
     push bx
@@ -282,30 +575,41 @@ done:
     ret                  ; Return from the procedure
 display_company_colour_name endp
 
-compare_strings proc ; COMPARE TWO STRINGS (using SI and DI)
-    push cx ; save original CX value in stack
-    mov cl, actlen  ; get length of input
-    xor ch, ch ; clears the value within CH
+; COMPARE TWO STRINGS (using SI and DI (input))
+compare_strings proc 
+    push cx ; Save original CX value in stack
+    push dx ; Save original DX value in stack
+
+    xor cx, cx ; Initialize character counter to 0
 
 compare_loop:
-    mov al, [si] ; move character from first string (pre-defined) into AL
-    cmp al, [di] ; compare with character from second string (user input)
-    jne compare_end ; jump if not equal
-    test al, al  ; check for null \0 (if null, string considered match, ZF = 1)
-    jz compare_match ; skips this as long as AL != 0, and jump if ZF = 1 (AL = 0)
-    inc si ; move to next char in first string
-    inc di ; move to next char in secodn string
-    loop compare_loop ; start the comparison of next char
+    mov dl, [si]    ; Load character from first string
+    cmp dl, [di]    ; Compare with character from second string (input)
+    jne compare_end ; Jump if characters don't match
+
+    cmp dl, 0        ; Check if we reached the null terminator
+    je compare_match ; If both strings have the same length, they match
+
+    inc si           ; Move to next character in first string
+    inc di           ; Move to next character in second string
+    loop compare_loop ; Continue comparing characters
 
 compare_match:
-    pop cx ; restore original CX value
-    xor ax, ax  ; Set ZF to 0 for matching
-    ret ; return ZF 0 (MATCH)
+    cmp byte ptr [si], 0 ; Check if first string is at null terminator
+    jne compare_end      ; If not, strings don't match
+    cmp byte ptr [di], 0 ; Check if second string is at null terminator
+    jne compare_end      ; If not, strings don't match
+
+    pop dx     ; Restore original DX value
+    pop cx     ; Restore original CX value
+    xor ax, ax ; Set ZF to 0 for match
+    ret        ; Return ZF 0 (MATCH)
 
 compare_end:
-    pop cx ; restore original CX value
-    or ax, ax  ; Set ZF to 1 for not matching
-    ret ; return ZF 1 (NOT MATCH)
+    pop dx     ; Restore original DX value
+    pop cx     ; Restore original CX value
+    or ax, ax ; Set ZF to 1 for no match
+    ret       ; Return ZF 1 (NO MATCH)
 
 compare_strings endp
 
