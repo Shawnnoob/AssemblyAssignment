@@ -23,11 +23,16 @@
                  db "| 4. Cotton Buds             |    1.00   |", 0dh, 0ah
                  db "------------------------------------------", 0dh, 0ah, 0
 
-    ; Products: ID (1 byte), Name (20 bytes), Price (2 bytes in cents for easier calculations)
-    products db 1, "Tissue              ", 120    ; $1.20
-             dw 2, "Toothpaste          ", 1220   ; $12.20
-             dw 3, "Body Wash           ", 1590   ; $15.90
-             db 4, "Cotton Buds         ", 100    ; $1.00
+    ; Products: ID (1 byte), Name (20 bytes)
+    product db 1, "Tissue              "
+            db 2, "Toothpaste          "
+            db 3, "Body Wash           "
+            db 4, "Cotton Buds         "
+    ; Price (2 bytes)
+    product_price dw 120
+                  dw 1220
+                  dw 1590
+                  dw 100
 
     product_count db 4
     product_size equ 23 ; 1 + 20 + 2 = length of product (bytes)
@@ -36,7 +41,7 @@
     current_product dw ?
     product_id db ?
     product_name db 20 dup(?)
-    product_price dw ?
+    product_price_entered dw ?
 
     price_string db 10 dup(0)  ; Buffer to hold the price string
      prompt_product_id db "Enter product ID: $"
@@ -485,7 +490,7 @@ load_product_info proc
     xor ah, ah
     mov al, product_size
     mul bl  ; BL contains the product index
-    add ax, offset products
+    add ax, offset product
     mov si, ax
     
     ; Load ID
