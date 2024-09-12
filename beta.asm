@@ -35,7 +35,7 @@
                   dw 100
 
     product_count db 4
-    product_size equ 20 ; 1 + 20 = length of product (bytes)
+    product_size equ 21 ; 1 + 20 = length of product (bytes)
 
     ; Variables for accessing current/chosen product information
     product_id db ?
