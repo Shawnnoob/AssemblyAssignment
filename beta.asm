@@ -9,19 +9,19 @@
          db "|        2. Show product          |", 0dh, 0ah
          db "|        3. Show cashbox          |", 0dh, 0ah
          db "|        4. Exit program          |", 0dh, 0ah
-         db "-----------------------------------", 0dh, 0ah, 0
-    newline db 0dh,0ah,"$"
+         db "-----------------------------------", 0dh, 0ah, '$'
+    newline db 0dh,0ah,'$'
     username db "admin", 0
     password db "password", 0
 
-    product_menu db "==========================================", 0dh, 0ah 
+    product_menu db "==========================================", 0dh, 0ah
                  db "|         Products           |   Price   |", 0dh, 0ah
                  db "|----------------------------|-----------|", 0dh, 0ah
                  db "| 1. Tissue                  |    1.20   |", 0dh, 0ah
                  db "| 2. Toothpaste              |   12.20   |", 0dh, 0ah
                  db "| 3. Body Wash               |   15.90   |", 0dh, 0ah
                  db "| 4. Cotton Buds             |    1.00   |", 0dh, 0ah
-                 db "------------------------------------------", 0dh, 0ah, 0
+                 db "------------------------------------------", '$'
 
     ; Products: ID (1 byte), Name (20 bytes)
     product db 1, "Tissue              "
@@ -29,25 +29,20 @@
             db 3, "Body Wash           "
             db 4, "Cotton Buds         "
     ; Price (2 bytes)
-    product_price dw 120
+    preset_price dw 120
                   dw 1220
                   dw 1590
                   dw 100
 
     product_count db 4
-    product_size equ 23 ; 1 + 20 + 2 = length of product (bytes)
+    product_size equ 20 ; 1 + 20 = length of product (bytes)
 
     ; Variables for accessing current/chosen product information
-    current_product dw ?
     product_id db ?
     product_name db 20 dup(?)
-    product_price_entered dw ?
+    product_price dw ?
 
     price_string db 10 dup(0)  ; Buffer to hold the price string
-     prompt_product_id db "Enter product ID: $"
-    prompt_more_products db 13, 10, "Do you want to purchase more products? (Y/N): $"
-    selected_product_msg db 13, 10, "Selected product: $"
-    msg_invalid_product db 13, 10, "Invalid product ID. Please try again.", 13, 10, "$"
 
     input_buffer label byte ; User input characters (strings)
     maxlen db 20
@@ -65,10 +60,14 @@
     prompt_pass db "Enter password: $"
     msg_success db "Login successful!"
                 db 0dh, 0ah, "$"
-    msg_failure db "Login failed. Exiting program.$"
+    msg_failure db "Incorrect username / password. Please try again.$"
     msg_attempts db "Too many failed attempts. Exiting...$"
     attempts db 3  ; Counter for login attempts
     prompt_choice_1 db "Enter your choice (1-4): $"
+    prompt_product_id db "Enter product ID: $"
+    prompt_more_products db 13, 10, "Do you want to purchase more products? (Y/N): $"
+    selected_product_msg db 13, 10, "Selected product: $"
+    msg_invalid_product db 13, 10, "Invalid product ID. Please try again.", 13, 10, "$"
     invalid_input db "Invalid input. Enter to try again with a correct number."
                   db 0dh, 0ah, "$"
     msg_exit db "Exiting program. Thank you for using ABC Retail!"
@@ -107,7 +106,7 @@ login_loop:
 
     ; Null-terminate the string after the input length
     lea di, inputdata
-    mov cl, [input_buffer + 1] ; Get length of user input
+    mov cl, byte ptr [input_buffer + 1] ; Get length of user input
     add di, cx                ; Move DI to the end of the input string
     mov byte ptr [di], 0      ; Null-terminate the input
 
@@ -185,6 +184,17 @@ exit:
 login endp
 
 success_login_menu proc ;Login Success - Thee Hao Siang
+
+clear_buffer:
+    mov si, OFFSET input_buffer  ; Load the starting address of input_buffer into SI
+    mov cx, 20                   ; Load the size of the buffer (50 bytes) into CX
+    mov al, 0                    ; We will fill the buffer with 0 (null)
+
+clear_loop:
+    mov [si], al                 ; Set current byte to 0
+    inc si                       ; Move to the next byte in the buffer
+    loop clear_loop              ; Repeat until CX = 0 (end of buffer)
+
     ; Clear the screen
     mov ah, 06h  ; scroll up function
     mov al, 0    ; clear entire screen
@@ -266,13 +276,7 @@ exit_program:
 
 success_login_menu endp
 
-transaction proc ;Transaction - Thee Hao Siang
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+transaction proc
 
     ; Clear the screen
     mov ah, 06h
@@ -282,16 +286,28 @@ transaction proc ;Transaction - Thee Hao Siang
     mov bh, 07h
     int 10h
 
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
     ; Display company logo
     call display_company_colour_name
+
+    ; Display product menu
+    mov ah, 09h
+    lea dx, product_menu
+    int 21h
 
     ; Initialize total
     mov word ptr [total], 0
 
 transaction_loop:
-    ; Display product menu
+
     mov ah, 09h
-    lea dx, product_menu
+    lea dx, newline
     int 21h
 
     ; Ask user to enter product ID
@@ -300,17 +316,19 @@ transaction_loop:
     int 21h
 
     ; Get product ID input
-    mov ah, 01h
+    mov ah, 01h  ; Reads single character
     int 21h
-    sub al, '0'  ; Convert ASCII to number
-    dec al       ; Convert to 0-based index
-    mov bl, al
+    sub al, 48  ; Convert ASCII to number (char - 48)
+    mov bl, al   ; Store product ID in BL
 
     ; Validate product ID
-    cmp bl, 0
+    cmp bl, 1
     jl invalid_product
     cmp bl, [product_count]
-    jge invalid_product
+    jg invalid_product
+
+    ; Adjust BL to be 0-based index
+    dec bl
 
     ; Load product info
     call load_product_info
@@ -373,8 +391,17 @@ invalid_quantity:
     jmp transaction_loop
 
 transaction_complete:
-    ; Transaction complete, total is saved in [total]
-    ; (Code for displaying receipt would go here)
+    ; Convert total to string
+    mov ax, [total]
+    lea si, price_string
+    call price_to_string
+
+    ; Display total
+    mov ah, 09h
+    lea dx, msg_total
+    int 21h
+    lea dx, price_string
+    int 21h
 
     pop di
     pop si
@@ -383,7 +410,6 @@ transaction_complete:
     pop bx
     pop ax
     ret
-
 transaction endp
 
 price_to_string proc
@@ -484,30 +510,38 @@ load_product_info proc
     push bx
     push si
     push di
-    push cx
     
     ; Calculate product address
-    xor ah, ah
-    mov al, product_size
-    mul bl  ; BL contains the product index
-    add ax, offset product
-    mov si, ax
+    mov ax, product_size     ; Move the size of product into AX
+    mul bl                   ; AX multiplies by BL (index of product) to get the offset of chosen product 
+    add ax, offset product   ; Add the offset address of product array to get actual address of product (Points to start of chosen product in product array)
+    mov si, ax               ; Result is stored in SI (Points to the chosen product)
     
     ; Load ID
-    mov al, [si]
-    mov [product_id], al
-    inc si
+    mov al, [si]             ; Put product id into AL
+    mov [product_id], al     ; Store value into product_id variable
+    inc si                   ; Increment SI to continue to product name
     
     ; Load Name
-    mov di, offset product_name
-    mov cx, 20
-    rep movsb
+    mov cx, 20                   ; Set counter to 20 (length of product name)
+    mov di, offset product_name  ; DI points to address of product_name
+    
+load_name_loop:
+    mov al, [si]        ; Load a character from the source (product array)
+    mov [di], al        ; Store the character in the destination (product_name)
+    inc si              ; Move to next character in source
+    inc di              ; Move to next position in destination
+    loop load_name_loop ; Decrement CX and repeat until CX = 0
     
     ; Load Price
-    mov ax, [si]
-    mov [product_price], ax
+    xor ax, ax                    ; Clear AX
+    mov al, bl                    ; Move the product index (0-3) to AL
+    shl ax, 1                     ; Multiply by 2 to get the address of the desired price (each price is 2 bytes)
+    mov si, offset preset_price   ; Load the address of preset_price array into SI
+    add si, ax                    ; Add the offset address in AX to get the actual address of price
+    mov ax, [si]                  ; Load the value of price into AX
+    mov [product_price], ax       ; Store the value of price into product_price variable
     
-    pop cx
     pop di
     pop si
     pop bx
