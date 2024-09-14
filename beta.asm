@@ -30,12 +30,24 @@
     actlen db ?
     inputdata db 20 dup (0)
 
-    product db "Tissue", 0
-            db "Toothpaste", 0
-            db "Body Wash", 0
-            db "Cotton Buds", 0
-    product_qty db 0, 0, 0, 0
-    preset_price dw 120, 1220, 1590, 100
+    product_a db 'Tissue', 0
+    product_b db 'Toothpaste', 0
+    product_c db 'Body Wash', 0
+    product_d db 'Cotton Buds', 0
+
+    product_lengths db 6, 10, 9, 11       ; Lengths of each product name
+    product_qty db 0, 0, 0, 0             ; Chosen quantity for each product
+    preset_price dw 120, 1220, 1590, 100  ; Product price in cents
+
+    product_id db ?
+    current_quantity db 4 dup(0)
+    subtotals dw 4 dup(0)
+    total_price dw 0
+    temp_word dw ?
+
+    msg_current_quantity db "Current quantity: $"
+    msg_enter_quantity db "Enter quantity to buy (1-3): $"
+    msg_continue_shopping db "Continue shopping? (Y/N): $"
 
     ;prompts and messages
     prompt_username db 'Enter username: $'
@@ -54,6 +66,13 @@
     msg_subtotal db "Subtotal for $"
     msg_total db "Total: RM$"
 
+    current_product db 20 dup('$')  ; Buffer to store current product name
+    quantity db ?                   ; Variable to store quantity
+    subtotal dw ?                   ; Variable to store subtotal
+    total dw 0                      ; Variable to store total price
+
+    prompt_continue db 'Do you want to buy more products? (Y/N): $'
+    msg_invalid_quantity db 'Invalid quantity. Please enter a number between 1 and 3.$'
     msg_invalid_input db 'Invalid input. Enter to try again with a correct number. $'
     msg_exit db "Exiting program. Thank you for using ABC Retail! $"
 
@@ -103,14 +122,28 @@ menu_loop:
 
     ; Check user input
     cmp al, '1'
-    je option_1
+    je start_transaction
     cmp al, '2'
-    je option_2
+    je option_2_jmp
+    jmp to_option_3
+option_2_jmp:
+    jmp option_2
+to_option_3:
     cmp al, '3'
-    je option_3
+    je option_3_jmp
+    jmp to_option_4
+option_3_jmp:
+    jmp option_3
+to_option_4:
     cmp al, '4'
-    je exit_program
+    je exit_program_jmp
+    jmp to_invalid
+exit_program_jmp:
+    jmp exit_program
+to_invalid:
+    jmp invalid_choice
 
+invalid_choice:
     ; Print newline
     mov ah, 09h
     lea dx, newline
@@ -127,9 +160,123 @@ menu_loop:
 
     jmp menu_loop
 
-option_1:
-    call transaction
+start_transaction:
+    ; Clear the screen
+    call clear_screen
+
+transaction_loop:
+    ; Display company logo
+    call display_company_colour_name
+
+    ; Display product menu
+    mov ah, 09h
+    lea dx, product_menu
+    int 21h
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; Prompt for product ID
+    mov ah, 09h
+    lea dx, prompt_product_id
+    int 21h
+
+    ; Get product ID input
+    mov ah, 01h
+    int 21h
+    sub al, '0'  ; Convert ASCII to number
+    mov product_id, al
+
+    ; Validate product ID
+    cmp al, 1
+    jl invalid_product
+    cmp al, 4
+    jg invalid_product
+
+    ; Display selected product and current quantity
+    call display_selected_product
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, newline
+    int 21h
+
+    ; Prompt for quantity
+    mov ah, 09h
+    lea dx, prompt_quantity
+    int 21h
+
+    ; Get quantity input
+    mov ah, 01h
+    int 21h
+    sub al, '0'  ; Convert ASCII to number
+    mov quantity, al
+
+    ; Validate quantity
+    cmp al, 1
+    jl invalid_quantity
+    cmp al, 3
+    jg invalid_quantity
+
+    ; Update product quantity
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, quantity
+    add [product_qty + bx], al
+
+    ; Calculate subtotal
+    push bx  ; Save BX
+    shl bx, 1  ; Multiply BX by 2 to get the correct offset for preset_price
+    mov ax, word ptr [preset_price + bx]
+    pop bx  ; Restore BX
+    mov cl, quantity
+    xor ch, ch  ; Clear CH to ensure only CL is used
+    mul cx
+    mov subtotal, ax
+    add total, ax
+
+    ; Ask if user wants to continue shopping
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, prompt_continue
+    int 21h
+
+    mov ah, 01h
+    int 21h
+
+    cmp al, 'Y'
+    je transaction_loop_jmp
+    cmp al, 'y'
+    je transaction_loop_jmp
+    jmp to_display_total
+transaction_loop_jmp:
+    jmp transaction_loop
+
+to_display_total:
+    ; Display subtotals and total
+    call display_totals
+
+    ; Pause before continue
+    mov ah, 08h
+    int 21h
+
     jmp menu_loop
+
+invalid_product:
+    mov ah, 09h
+    lea dx, msg_invalid_product
+    int 21h
+    jmp transaction_loop
+
+invalid_quantity:
+    mov ah, 09h
+    lea dx, msg_invalid_quantity
+    int 21h
+    jmp transaction_loop
 
 option_2:
     ; Placeholder for Show product
@@ -140,7 +287,6 @@ option_3:
     jmp menu_loop
 
 exit_program:
-
     mov ah, 09h
     lea dx, newline
     int 21h
@@ -247,212 +393,182 @@ exit:
 
 login endp
 
-transaction proc
+display_selected_product proc
+    push ax
+    push bx
+    push dx
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, selected_product_msg
+    int 21h
+
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov si, bx
+    mov al, product_lengths[si]  ; Get the length of the product name
+    mov cl, al
+    mov ch, 0  ; Clear high byte of CX
+
+    mov si, offset product_a
+    mov di, offset current_product
+copy_product_name:
+    mov al, [si + bx]
+    mov [di], al
+    inc di
+    inc bx
+    loop copy_product_name
+
+    mov byte ptr [di], '$'  ; Null-terminate the string
+
+    mov ah, 09h
+    lea dx, current_product
+    int 21h
+
+    ; Display current quantity
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, msg_current_quantity
+    int 21h
+
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, [product_qty + bx]
+    add al, '0'
+    mov dl, al
+    mov ah, 02h
+    int 21h
+
+    pop dx
+    pop bx
+    pop ax
+    ret
+display_selected_product endp
+
+display_totals proc
+    push ax
+    push bx
+    push cx
+    push dx
+
     ; Clear the screen
     call clear_screen
 
     ; Display company logo
     call display_company_colour_name
 
-    ; Display product menu
-    mov ah, 09h
-    lea dx, product_menu
-    int 21h
+    mov cx, 4  ; Loop counter for 4 products
+    xor bx, bx  ; Product index
 
-transaction_loop:
-    ; Prompt for product ID
-    mov ah, 09h
-    lea dx, prompt_product_id
-    int 21h
+display_subtotals_loop:
+    mov al, [product_qty + bx]
+    or al, al
+    jz next_product  ; Skip if quantity is 0
 
-    ; Get product ID input
-    mov ah, 01h
-    int 21h
-
-    ; Convert input to numeric value
-    sub al, '1'
-    mov bl, al
-    cmp bl, 0
-    jl invalid_product_jmp
-    cmp bl, 3
-    jg invalid_product_jmp
-    jmp valid_product
-
-invalid_product_jmp:
-    jmp invalid_product
-valid_product:
-    ; Prompt for quantity
-    mov ah, 09h
-    lea dx, prompt_quantity
-    int 21h
-
-    ; Get quantity input
-    mov ah, 01h
-    int 21h
-
-    ; Convert input to numeric value
-    sub al, '0'
-    cmp al, 1
-    jl invalid_quantity_jmp
-    cmp al, 3
-    jg invalid_quantity_jmp
-    jmp valid_quantity
-
-invalid_quantity_jmp:
-    jmp invalid_quantity
-valid_quantity:
-     ; Store quantity in product_qty array
-    mov bh, 0
-    mov si, bx
-    mov product_qty[si], al
-
-    ; Display selected product and quantity
-    mov ah, 09h
-    lea dx, selected_product_msg
-    int 21h
-
-    ; Calculate the offset for the selected product
-    mov si, 0
-    mov cx, bx
-    jcxz display_product_name
-find_product_name:
-    mov al, [product + si]
-    inc si
-    cmp al, 0
-    jne find_product_name
-    loop find_product_name
-
-display_product_name:
-    mov ah, 09h
-    mov dx, si
-    add dx, offset product
-    int 21h
-
-    mov ah, 09h
-    lea dx, newline
-    int 21h
-
-    ; Prompt for more products
-    mov ah, 09h
-    lea dx, prompt_more_products
-    int 21h
-
-    ; Get user input
-    mov ah, 01h
-    int 21h
-
-    cmp al, 'Y'
-    je transaction_loop
-    cmp al, 'y'
-    je transaction_loop
-
-    ; Calculate total price
-    xor cx, cx
-    xor ax, ax
-    mov si, 0
-
-calculate_total:
-    mov bl, product_qty[si]
-    cmp bl, 0
-    je skip_product
-
-    mov bh, 0
-    shl si, 1  ; Scale the index by 2 because preset_price is a word array
-    mov dx, preset_price[si]
-    shr si, 1  ; Restore the original index
-    mul dx
-    add cx, ax
-
-skip_product:
-    inc si
-    cmp si, 4
-    jl calculate_total
-
-    ; Display subtotals and total price
-    mov si, 0
-    mov bx, 0
-
-display_subtotals:
-    mov bl, product_qty[si]
-    cmp bl, 0
-    je skip_subtotal
-
+    ; Display subtotal message
     mov ah, 09h
     lea dx, msg_subtotal
     int 21h
 
-    ; Calculate the offset for the selected product
-    mov di, 0
-    mov cx, si
-    jcxz display_subtotal_name
-find_subtotal_name:
-    lodsb
-    cmp al, 0
-    jne find_subtotal_name
-    loop find_subtotal_name
+    ; Display product name
+    mov si, offset product_a
+    mov di, offset current_product
+    mov al, [product_lengths + bx]
+    mov ah, 0
+    push cx
+    mov cx, ax
+copy_product_name_loop:
+    mov al, [si + bx]
+    mov [di], al
+    inc di
+    inc si
+    loop copy_product_name_loop
+    pop cx
+    mov byte ptr [di], '$'  ; Null-terminate the string
 
-display_subtotal_name:
     mov ah, 09h
-    lea dx, product[di]
+    lea dx, current_product
     int 21h
+
+    ; Calculate and display subtotal
+    mov al, [product_qty + bx]
+    mov ah, 0
+    push bx  ; Save BX
+    shl bx, 1  ; Multiply BX by 2 to get the correct offset for preset_price
+    mul word ptr [preset_price + bx]
+    pop bx  ; Restore BX
+    call display_price
 
     mov ah, 09h
     lea dx, newline
     int 21h
 
-skip_subtotal:
-    inc si
-    cmp si, 4
-    jl display_subtotals
+next_product:
+    inc bx
+    loop display_subtotals_loop
 
     ; Display total price
     mov ah, 09h
     lea dx, msg_total
     int 21h
 
-    ; Convert total price to RM00.00 format
-    mov ax, cx
+    mov ax, total
+    call display_price
+
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+display_totals endp
+
+display_price proc
+    ; Input: AX = price in cents
+    ; Displays price in format RM XX.XX
+    push ax
+    push bx
+    push dx
+
     mov bx, 100
+    xor dx, dx
     div bx
-    mov bx, ax
+
+    ; Display whole RM
+    push dx  ; Save cents
+    add al, '0'
+    mov dl, al
     mov ah, 02h
-    mov dl, bh
-    add dl, '0'
     int 21h
-    mov dl, bl
-    add dl, '0'
-    int 21h
+
+    ; Display decimal point
     mov dl, '.'
     int 21h
-    mov ax, dx
-    mov bl, 10
-    div bl
+
+    ; Display cents
+    pop ax  ; Retrieve cents
+    xor dx, dx
+    mov bx, 10
+    div bx
+    
+    add al, '0'
     mov dl, al
-    add dl, '0'
+    mov ah, 02h
     int 21h
+    
+    add ah, '0'
     mov dl, ah
-    add dl, '0'
+    mov ah, 02h
     int 21h
 
-    ; Wait for a key press
-    mov ah, 01h
-    int 21h
-
+    pop dx
+    pop bx
+    pop ax
     ret
-
-invalid_product:
-    mov ah, 09h
-    lea dx, msg_invalid_product
-    int 21h
-    jmp transaction_loop
-
-invalid_quantity:
-    mov ah, 09h
-    lea dx, msg_invalid_input
-    int 21h
-    jmp transaction_loop
-
-transaction endp
+display_price endp
 
 compare_strings proc ;Compare two strings (using SI and DI (input))
     push cx ; Save original CX value in stack
