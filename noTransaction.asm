@@ -36,13 +36,17 @@
     product_d db 'Cotton Buds', 0
 
     product_lengths db 11, 11, 11, 11     ; Lengths of each product name
+    preset_price dw 120, 1220, 1590, 100  ; Product price
     product_qty db 0, 0, 0, 0             ; Chosen quantity for each product
-    preset_price dw 120, 1220, 1590, 100  ; Product price in cents
 
-    product_id db ?
+    product_id db ?                 ; Temporarily store chosen product id
     current_product db 20 dup('$')  ; Buffer to store current product name
     quantity db ?
 
+    subtotal_prices dw 0, 0, 0, 0   ; Subtotal prices for each product
+    total_price dw 0                ; Total price for all products
+
+    ; Prompts and Messages
     prompt_username db 'Enter username: $'
     prompt_password db 'Enter password: $'
     msg_success_login db 'Login successful! $'
@@ -241,6 +245,7 @@ transaction_loop_jmp:
 
 to_display_total:
     ; Display subtotals and total
+
 
     ; Pause before continue
     mov ah, 08h
