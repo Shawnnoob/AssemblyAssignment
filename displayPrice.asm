@@ -26,11 +26,15 @@ main proc
 
 product_loop:
     push cx     ; Save loop counter
+    push si     ; Save SI
 
     ; Display product name
+    mov ax, cx
     mov ah, 09h
     lea dx, product_list[si]
     int 21h
+
+    pop si      ; Load SI
     
     ; Calculate subtotal
     shl si, 1
@@ -71,6 +75,10 @@ product_loop:
     mov ah, 09h
     lea dx, msg_total
     int 21h
+
+    mov ax, total_result
+    mov result, ax
+    call DisplayPrice
 
     ; Exit program
     mov ah, 4Ch
