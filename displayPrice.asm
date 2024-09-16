@@ -64,7 +64,6 @@ done_removing:
     int 21h
 
     ; Display the number
-    mov cx, 5
     mov ah, 09h
     lea dx, buffer      ; Displays the price before floating point
     int 21h
