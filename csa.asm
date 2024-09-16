@@ -8,7 +8,8 @@
          db "|       1. Start transaction      |", 0dh, 0ah
          db "|       2. Show product           |", 0dh, 0ah
          db "|       3. Show cashbox           |", 0dh, 0ah
-         db "|       4. Exit program           |", 0dh, 0ah
+         db "|       4. Restock product        |", 0dh, 0ah
+         db "|       5. Exit program           |", 0dh, 0ah
          db "-----------------------------------", 0dh, 0ah, '$'
 
     product_menu db "==========================================", 0dh, 0ah
@@ -69,6 +70,73 @@
     msg_total db 'Total: RM$'
     msg_continue db 'Press enter to continue...$'
 
+;----------------------------------Receipt-------------------------------------------
+    receipt_start   db "===========================================", 0dh, 0ah
+                    db "|               Receipt                   |", 0dh, 0ah
+                    db "-------------------------------------------", 0dh, 0ah
+                    db "Product Name         QTY        Amount(RM) ", 0dh, 0ah
+                    db "                                           $"
+
+    receipt_end     db  "--------------------------------------------", 0dh, 0ah
+                    db  "          Thanks You Very Much              ", 0dh, 0ah           
+                    db  "            Have A Nice Day                 ", 0dh, 0ah
+                    db  "=============================================", 0dh, 0ah
+                    db  "                                           $"
+
+    wkz_subTotal    db "SubTotal                           $", 0dh, 0ah
+    discount    db "Discount                           $", 0dh, 0ah
+    sst         db "SST(8%)                            $", 0dh, 0ah
+    wkz_total       db "Total                              $", 0dh, 0ah   
+
+    print   db "Do you want to print the receipt?", 0dh, 0ah
+            db "      a - Yes  b - No            ", 0dh, 0ah
+            db "$"
+
+    enter_choice db "Enter your choice: $", 0dh, 0ah
+
+    printing    db "===============================",0dh,0ah
+                db "Printing......                ", 0dh, 0ah
+                db "Press Enter to process       ", 0dh, 0ah
+                db "$"
+
+
+;----------------------------------------------addStock------------------------------
+    error db "Invalid input please try again.$"
+    Pause_Msg db "Press any key to continue...$",0dh,0ah
+    Restock_Msg db "Enter the (1,2,3,4) to restock the product:$",0dh,0ah
+
+    restock_heading   db "===========================================", 0dh, 0ah
+                      db "|              Add stock                   |", 0dh, 0ah
+                      db "-------------------------------------------", 0dh, 0ah
+                      db "$"
+
+    restock_confirm_msg db "Are you sure you want to restock? (Y/N):$",0dh,0ah
+    restock_cancel_msg db "Canceled restock... $"
+    restock_success_msg db "Success to restock the product...$"
+    restock_maxMsg_msg db "Stock exceed 99! please try again. $"
+    restock_inputMsg_msg db "Enter the quantity you want to restock(Enter 2 digits/x to exit): $"
+
+    restock_prod db "==========================================", 0dh, 0ah
+                 db "|         Products           |   Stock   |", 0dh, 0ah
+                 db "|----------------------------|-----------|", 0dh, 0ah
+    input_firstdigit db "First digit cannot be more than 9!/invalid input! $"
+                 
+    restock_A db '1'
+    restock_B db '2'
+    restock_C db '3'
+    restock_D db '4'
+
+    product_1   db "1. Tissue                  $"
+    product_2   db "2. Toothpaste              $"
+    product_3   db "3. Body Wash               $"
+    product_4   db "4. Cotton Buds             $"
+    restock_Exit db    "x.Exit$"
+    
+    restock_x db 0
+    restock_y db 0     
+    product_qty_store db 3, 6, 9, 5
+
+
 .code
 
 main proc
@@ -127,8 +195,14 @@ to_option_3:
     jmp to_option_4
 option_3_jmp:
     jmp option_3
+option_4_jmp:
+    jmp option_4
 to_option_4:
-    cmp al, '4'
+    cmp al,'4'
+    je option_4_jmp
+    jmp to_option_5
+to_option_5:
+    cmp al, '5'
     je exit_program_jmp
     jmp to_invalid
 exit_program_jmp:
@@ -367,6 +441,10 @@ option_2:
 option_3:
     ; Placeholder for Show cashbox
     jmp menu_loop
+
+option_4:
+    ; restock model
+    jmp restock_proc
 
 exit_program:
     mov ah, 09h
@@ -729,5 +807,326 @@ scroll_screen proc ;Scroll Screen
 
     ret
 scroll_screen endp
+
+;--------------------------------------------Restock------------------------------------
+nextLine proc
+    mov ah,02h
+    mov dl,10d
+    int 21h
+    mov ah,02h
+    mov dl,13
+    int 21h
+    ret
+nextLine endp
+
+printString proc
+    mov ah, 09h         
+    lea dx, [si]         
+    int 21h
+    xor si,si           
+    ret
+printString endp
+
+captureChar proc
+    mov ah, 01h   ; Set DOS function to read a single character with echo
+    int 21h       ; Interrupt 21h to read from keyboard
+    ret 
+captureChar endp
+
+
+PrintQty proc
+
+    mov al, product_qty_store[si]  ; Load the byte at ps_inStockQuantity[si] into AL
+    cmp al, 10           ; Compare with 10
+    jl PrintSingleDigit   ; Jump to PrintSingleDigit if less than 10
+    xor ah,ah
+    mov bl, 10d           ; Prepare for division
+    div bl               ; AL = quotient (tens digit), AH = remainder (ones digit)
+
+    ; Print tens digit
+    mov dl, al           ; Load tens digit into DL
+    add dl, '0'          ; Convert to ASCII
+    mov restock_x,ah
+    mov ah, 02h          ; Function 02h - Print character
+    int 21h
+
+    ; Print ones digit
+    mov dl, restock_x          ; Load ones digit into DL
+    add dl, '0'          ; Convert to ASCII
+    mov ah, 02h          ; Function 02h - Print character
+    int 21h
+    
+    mov bl,0
+    mov restock_x,bl  ;initialize x to 0
+    jmp PrintQtyDone      ; Jump to the end
+
+PrintSingleDigit:
+    add al, '0'          ; Convert single digit to ASCII
+    mov ah, 0Eh          ; Function 0Eh - Print character
+    int 10h
+
+PrintQtyDone:
+    ret
+PrintQty endp
+
+
+
+restock_display proc
+    call clear_screen
+
+    lea si,restock_heading
+    call printString
+    call nextLine
+
+    lea si,product_1
+    call printString
+    mov si,0
+    call PrintQty
+    call nextLine
+
+    lea si,product_2
+    call printString
+    mov si,1
+    call PrintQty
+    call nextLine
+    
+    lea si,product_3
+    call printString
+    mov si,2
+    call PrintQty
+    call nextLine
+
+    lea si,product_4
+    call printString
+    mov si,3
+    call PrintQty
+    call nextLine
+
+    lea si,restock_Exit
+    call printString
+    call nextLine
+    ret
+
+restock_display endp
+
+captureTwoNum proc
+
+capturefirstdigit:
+    lea si,restock_inputMsg_msg
+    call printString
+	mov ah, 01h
+	int 21h
+    mov restock_x,al ;x=first digit
+    cmp al,'x'
+    je return
+    cmp al,39h ;compare first digit to 9
+    jg errormsg ;jump if firstnum>=2
+    cmp al,30h ;compare first digit to 0
+    jl errormsg
+
+    mov ah, 01h
+	int 21h
+    mov restock_y,al ;y=second digit
+    cmp al,39h ;compare 2nd digit to 9
+    jg errormsg
+    cmp al,30h
+    jl errormsg
+    jmp restock_calc
+
+errormsg:
+    call nextLine
+    lea si,input_firstdigit ;first digit cannot more than 1!
+    call printString
+    call Pause 
+    call clear_screen
+    call restock_display
+    call nextLine
+    jmp capturefirstdigit
+
+  
+restock_calc:
+    xor bx,bx
+    mov bl,10
+    sub restock_x,30h;substract it from ASCII
+    sub restock_y,30h;substract from ASCII
+    mov al,restock_x
+    mul bl
+
+    add al,restock_y
+    mov bx,ax ;two digits store result into bx
+    call nextLine
+    jmp restock_sure
+
+restock_sure: 
+    lea si,restock_confirm_msg
+    call printString
+    call captureChar
+    cmp al,'y'
+    je return
+    jne restock_no
+
+restock_no:
+    cmp al,'n'
+    je restock_cancel
+    jne errormsg2
+return:
+    ret
+
+errormsg2:
+    call nextLine
+    lea si,error ;invalid input !
+    call printString
+    call nextLine
+    call Pause
+    call clear_screen 
+    jmp restock_sure
+
+restock_cancel: 
+    call nextLine
+    lea si,restock_cancel_msg ;restock canceled
+    call printString
+    call nextLine
+    call Pause
+    call main
+
+
+captureTwoNum endp
+
+
+Pause proc
+    mov ah,09h
+    lea dx,Pause_Msg
+    int 21h
+    mov ah,07h
+    int 21h
+    ret
+
+Pause endp    
+
+
+warning proc
+    call nextLine
+    lea si,error
+    call Pause
+    call clear_screen
+    ret
+warning endp    
+    
+restock_proc proc
+    call clear_screen
+restock_Screen:
+    
+    lea si,restock_heading
+    call nextLine
+    call restock_display
+
+    call nextLine
+    lea si,Restock_Msg
+    call printString
+    call captureChar
+    mov restock_x ,al ;save in restock_x
+    cmp al,'x'      ;compare input is x or not
+    je restock_end ;if yes then jump to restock_end
+    cmp al,31h  ; compare input is more then 1 in ASCII
+    jl warningMsg ;if less then 1 then jump to error msg
+    cmp al,34h ; compare input is more then 4 in ASCII
+    jg warningMsg ; if less then 4 then jump to error msg
+    jmp select_restock
+
+restock_end:
+    call menu_loop    
+warningMsg:
+    call warning
+    jmp restock_screen
+
+warning1:
+    call warningMsg
+    jmp restock_screen
+
+restockA:
+    mov di,0
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen
+
+restockB:
+    mov di,1
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen    
+
+restockC:
+    mov di,2
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen
+
+restockD:
+    mov di,3
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen
+restockA1:
+    jmp restockA
+restockB1:
+    jmp restockB
+restockC1:
+    jmp restockC
+restockD1:
+    jmp restockD
+
+select_restock:
+    cmp al, restock_A
+    je restockA1
+    cmp al, restock_B
+    je restockB1
+    cmp al, restock_C
+    je restockC1
+    cmp al, restock_D
+    je restockD1
+
+ret 
+restock_proc endp    
+
 
 end main
