@@ -1,38 +1,94 @@
 .model small
 .stack 100h
 .data
-    num1 dw 1296         ; First number as a fixed-point number (12.90 * 100)
-    num2 db 2            ; Second number as quantity
-    result dw ?          ; Variable to store the result
-    cent_result dw '','$'     ; Variable to store cents
-    buffer db 6 dup('$') ; Buffer to hold the ASCII representation of the result
-    msg db 'Result: RM$'
+    product_list  db 'Tissue     ', 0
+                    db 'Toothpaste ', 0
+                    db 'Body Wash  ', 0
+                    db 'Cotton Buds', 0
+    preset_price dw 120, 1220, 1590, 100 ; Product price (in cents)
+    product_qty db 2, 2, 2, 2 ; Chosen quantity for each product (assumed to be 2)
+    result dw ?                 ; Variable to store the result
+    cent_result dw ' ', '$'     ; Results for cent
+    total_result dw 0           ; Variable to store the total
+    buffer db 6 dup('$')        ; Buffer to hold the ASCII representation of the result
+    msg_product db 'Product: $'
+    msg_subtotal db 'Subtotal: RM$'
+    msg_total db 'Total: RM$'
+    newline db 13, 10, '$'
 
 .code
 main proc
     mov ax, @data
     mov ds, ax
 
-    ; Load the numbers into registers
-    mov ax, num1    ; AX = 1290
-    mov bl, num2    ; BL = 02
-    xor bh, bh      ; Clear BH to ensure BX is 16-bit
+    mov si, 0  ; Initialize index to 0
+    mov cx, 4   ; Loop 4 times for 4 products
 
-    ; Multiply the numbers
-    mul bx          ; AX = AX * BX
+product_loop:
+    push cx     ; Save loop counter
 
-    ; Store the result in memory
-    mov result, ax  ; result = AX (lower 16 bits of the product)
+    ; Display product name
+    mov ah, 09h
+    lea dx, product_list[si]
+    int 21h
+    
+    ; Calculate subtotal
+    shl si, 1
+    mov ax, preset_price[si]
+    shr si, 1
+    mov bl, product_qty[si]
+    xor bh, bh
+    mul bx
+    mov result, ax
 
+    ; Add to total
+    add total_result, ax
+
+    ; Display newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; Display subtotal
+    mov ah, 09h
+    lea dx, msg_subtotal
+    int 21h
+
+    push si             ; Save SI value
+    call DisplayPrice
+    pop si              ; Load SI value
+
+    ; Display newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    add si, 1   ; Move to next product (2 bytes for word)
+    pop cx      ; Restore loop counter
+    loop product_loop
+
+    ; Display total
+    mov ah, 09h
+    lea dx, msg_total
+    int 21h
+
+    mov total
+
+    ; Exit program
+    mov ah, 4Ch
+    int 21h
+main endp
+
+DisplayPrice proc
     ; Convert the result to ASCII for display
     lea si, buffer
     mov cx, 5       ; Loop 5 times for 5 bytes in buffer (max 5 digits)
     add si, 4       ; Start from the end of buffer (leave 1 extra $ for end string)
-    mov ax, result  ; Move result back to AX (just in case)
+    mov ax, result  ; Move result to AX
 
     ; Extract and convert each digit
 convert_loop:
-    xor dx, dx       ; Clear DX for division
+    xor dx, dx      ; Clear DX for division
     mov bx, 10      ; Base 10 for conversion
     div bx          ; AX = AX / 10, DX = remainder (last digit)
     add dl, 30h     ; Convert digit to ASCII
@@ -40,39 +96,36 @@ convert_loop:
     dec si          ; Move to the next buffer position
     loop convert_loop
 
-    ; Ensure the buffer is in the correct format (00.00)
-    lea si, buffer          ; Load address of buffer into SI
-    mov ax, word ptr [si+3] ; Loads the last two digits into cent_result
+    ; Extract the cents
+    lea si, buffer           ; Points SI to starting address of buffer
+    mov ax, word ptr [si+3]  ; Loads the last two digits into cent_result
     mov cent_result, ax
 
+    ; Ensure the buffer is in the correct format (00.00)
     mov byte ptr [si+3], '.'
     mov byte ptr [si+4], '$'
 
-    lea si, buffer
-    mov cx, 4       ; We'll check the first 4 digits (before the decimal point)
+    ; Remove leading zeros
+    lea si, buffer           ; Points SI to starting address of buffer
+    mov cx, 3               ; We'll check the first 3 digits (before the decimal point)
 remove_leading_zeros:
-    cmp byte ptr [si], '0'  ; Check fot leading '0'
-    jne done_removing       ; If found number, skip looping to display
+    cmp byte ptr [si], '0'  ; Check for leading '0'
+    jne display_price       ; If found non-zero number, display
     mov byte ptr [si], ' '  ; Replace '0' with space
     inc si
     loop remove_leading_zeros
 
-done_removing:
-    ; Display the result
+display_price:
+    ; Display the price
     mov ah, 09h
-    lea dx, msg
+    lea dx, buffer
     int 21h
 
-    ; Display the number
     mov ah, 09h
-    lea dx, buffer      ; Displays the price before floating point
+    lea dx, cent_result
     int 21h
 
-    lea dx, cent_result ; Displays the price after floating point
-    int 21h
+    ret
+DisplayPrice endp
 
-    ; Exit the program
-    mov ah, 4Ch
-    int 21h
-main endp
 end main
