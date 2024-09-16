@@ -5,39 +5,69 @@
                  db "|    ABC Retail    |", 0dh, 0ah
                  db "--------------------", 0dh, 0ah, 0
     menu db "-----------------------------------", 0dh, 0ah
-         db "|        1. Start transaction     |", 0dh, 0ah
-         db "|        2. Show product          |", 0dh, 0ah
-         db "|        3. Show cashbox          |", 0dh, 0ah
-         db "|        4. Exit program          |", 0dh, 0ah
-         db "-----------------------------------", 0dh, 0ah, 0
-    newline db 0dh,0ah,"$"
+         db "|       1. Start transaction      |", 0dh, 0ah
+         db "|       2. Show product           |", 0dh, 0ah
+         db "|       3. Show cashbox           |", 0dh, 0ah
+         db "|       4. Exit program           |", 0dh, 0ah
+         db "-----------------------------------", 0dh, 0ah, '$'
+
+    product_menu db "==========================================", 0dh, 0ah
+                 db "|         Products           | Price(RM) |", 0dh, 0ah
+                 db "|----------------------------|-----------|", 0dh, 0ah
+                 db "| 1. Tissue                  |    1.20   |", 0dh, 0ah
+                 db "| 2. Toothpaste              |   12.20   |", 0dh, 0ah
+                 db "| 3. Body Wash               |   15.90   |", 0dh, 0ah
+                 db "| 4. Cotton Buds             |    1.00   |", 0dh, 0ah
+                 db "------------------------------------------", '$'
+
+    newline db 0dh,0ah,'$'
     username db "admin", 0
     password db "password", 0
-    product db "Shampoo, 15.99", 0
-            db "Tissue, 1.99", 0
-            db "Hair Gel, 15.99", 0
-            db "Lotion, 10.99", 0
-    ;input_buffer db 20, ?, 20 dup(0)    ; First byte: maximum input size is 20
-                                        ; Second byte: store user input size
-                                        ; Third byte: Space for input characters (Initializes 20 '0's)
-                                        ; Input is terminated by a newline (0dh,0ah)
-    input_buffer label byte
+    attempts db 3  ; Counter for login attempts
+
+    input_buffer label byte ; User input characters (strings)
     maxlen db 20
     actlen db ?
     inputdata db 20 dup (0)
 
-    prompt_user db "Enter username: $"
-    prompt_pass db "Enter password: $"
-    msg_success db "Login successful!"
-                db 0dh, 0ah, "$"
-    msg_failure db "Login failed. Try again.$"
-    msg_attempts db "Too many failed attempts. Exiting...$"
-    attempts db 3  ; Counter for login attempts
-    prompt_choice db "Enter your choice (1-4): $"
-    invalid_input db "Invalid input. Enter to try again with a correct number."
-                  db 0dh, 0ah, "$"
-    msg_exit db "Exiting program. Thank you for using ABC Retail!"
-             db 0dh, 0ah, "$"
+    product_a db 'Tissue     ', 0
+    product_b db 'Toothpaste ', 0
+    product_c db 'Body Wash  ', 0
+    product_d db 'Cotton Buds', 0
+
+    product_lengths db 11, 11, 11, 11     ; Lengths of each product name
+    product_qty db 0, 0, 0, 0             ; Chosen quantity for each product
+    preset_price dw 120, 1220, 1590, 100  ; Product price in cents
+
+    product_id db ?                 ; Buffer to store current product ID
+    current_product db 20 dup('$')  ; Buffer to store current product name
+    quantity db ?                   ; Buffer to store quantity user inputs
+
+    result dw ?                 ; Variable to store the result of transaction
+    cent_result dw ' ', '$'     ; Variable to store the result for cent
+    total_result dw 0           ; Variable to store the total price
+    buffer db 6 dup('$')        ; Buffer to hold the ASCII representation of the transaction result
+
+    prompt_username db 'Enter username: $'
+    prompt_password db 'Enter password: $'
+    msg_success_login db 'Login successful! $'
+    msg_failure_login db 'Incorrect username/password. Please try again.$'
+    msg_attempts_finished db 'Too many failed attempts. Exiting program...$'
+
+    prompt_menu_choice db 'Enter your choice (1-4): $'
+    prompt_product_id db 'Enter product ID: $'
+    prompt_quantity db 'Enter quantity (1-3): $'
+    prompt_more_product db 'Do you want to buy more products? (Y/N): $'
+    msg_selected_product db 13, 10, 'Selected product: $'
+    msg_current_quantity db 'Current quantity (max 3 per item): $'
+    msg_invalid_product db 13, 10, 'Invalid product ID. Enter to try again.$'
+    msg_invalid_quantity db 13, 10, 'Invalid input/quantity. Enter to try again.$'
+    msg_invalid_input db 'Invalid input. Enter to try again with a correct number. $'
+    msg_exit db 'Exiting program. Thank you for using ABC Retail! $'
+    msg_max_quantity db 13, 10, 'Maximum quantity reached for this product. Enter to continue.$'
+    msg_subtotal db 'Subtotal: RM$'
+    msg_total db 'Total: RM$'
+    msg_continue db 'Press enter to continue...$'
 
 .code
 
@@ -46,16 +76,311 @@ main proc
     mov ds, ax
 
     call login ; Will terminate program if login attempt exceeds 3 times
-    call success_login_menu
+
+success_login: ; Clear the input_buffer
+    mov si, OFFSET input_buffer  ; Load the starting address of input_buffer into SI
+    mov cx, 20                   ; Load the size of the buffer (50 bytes) into CX
+    mov al, 0                    ; We will fill the buffer with 0 (null)
+
+clear_loop:
+    mov [si], al                 ; Set current byte to 0
+    inc si                       ; Move to the next byte in the buffer
+    loop clear_loop              ; Repeat until CX = 0 (end of buffer)
+
+menu_loop:
+    ; Clear the screen
+    call clear_screen
+    ; Print company name
+    call display_company_colour_name 
+
+    ; Print success message
+    mov ah, 09h
+    lea dx, msg_success_login
+    int 21h
+    lea dx, newline
+    int 21h
+
+    ; Print menu
+    lea dx, menu
+    int 21h
+
+    ; Prompt for user input
+    mov ah, 09h
+    lea dx, prompt_menu_choice
+    int 21h
+
+    ; Get user input
+    mov ah, 01h
+    int 21h
+
+    ; Check user input
+    cmp al, '1'
+    je start_transaction
+    cmp al, '2'
+    je option_2_jmp
+    jmp to_option_3
+option_2_jmp:
+    jmp option_2
+to_option_3:
+    cmp al, '3'
+    je option_3_jmp
+    jmp to_option_4
+option_3_jmp:
+    jmp option_3
+to_option_4:
+    cmp al, '4'
+    je exit_program_jmp
+    jmp to_invalid
+exit_program_jmp:
+    jmp exit_program
+to_invalid:
+    jmp invalid_choice
+
+invalid_choice:
+    ; Print newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; If we get here, input was invalid
+    mov ah, 09h
+    lea dx, msg_invalid_input
+    int 21h
+
+    ; Wait for a key press
+    mov ah, 01h
+    int 21h
+
+    jmp menu_loop
+
+start_transaction:
+    ; Clear the screen
+    call clear_screen
+
+transaction_loop:
+    ; Display company logo
+    call display_company_colour_name
+
+    ; Display product menu
+    mov ah, 09h
+    lea dx, product_menu
+    int 21h
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; Prompt for product ID
+    mov ah, 09h
+    lea dx, prompt_product_id
+    int 21h
+
+    ; Get product ID input
+    mov ah, 01h
+    int 21h
+    sub al, '0'  ; Convert ASCII to number
+    mov product_id, al
+
+    ; Validate product ID
+    cmp al, 1
+    jl invalid_product_jmp
+    cmp al, 4
+    jg invalid_product_jmp
+    jmp valid_product
+invalid_product_jmp:
+    jmp invalid_product
+
+valid_product:
+    ; Display selected product and current quantity
+    call display_selected_product
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, newline
+    int 21h
+
+    ; Prompt for quantity
+    mov ah, 09h
+    lea dx, prompt_quantity
+    int 21h
+
+    ; Get quantity input
+    mov ah, 01h
+    int 21h
+    sub al, '0'  ; Convert ASCII to number
+    mov quantity, al
+
+    ; Validate quantity
+    cmp al, 1
+    jl invalid_quantity_jmp
+    cmp al, 3
+    jg invalid_quantity_jmp
+    jmp valid_quantity
+invalid_quantity_jmp:
+    jmp invalid_quantity
+
+valid_quantity:
+    ; Check if adding the quantity will exceed the maximum limit
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, [product_qty + bx]
+    add al, quantity
+    cmp al, 3
+    jg max_quantity_reached_msg
+    jmp valid_quantity_2
+max_quantity_reached_msg:
+    jmp max_quantity_reached
+
+valid_quantity_2:
+    ; Update product quantity
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, quantity
+    add [product_qty + bx], al
+
+    ; Ask if user wants to continue shopping
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, prompt_more_product
+    int 21h
+    mov ah, 01h
+    int 21h
+
+    cmp al, 'Y'
+    je transaction_loop_jmp
+    cmp al, 'y'
+    je transaction_loop_jmp
+    jmp to_display_total
+transaction_loop_jmp:
+    jmp transaction_loop
+
+to_display_total:
+    call clear_screen
+    call display_company_colour_name
+    ;Display product name, qty and price
+    push si
+    push ax
+    push bx
+    push dx
+
+    mov cx, 4   ; Loop 4 times for 4 products
+    mov si, 0   ; Move SI to 0 for index
+display_price_loop:
+    push cx
+    mov ax, si                    ; Move SI into AX
+    xor ah, ah                    ; Clear AH
+    add al, 1                     ; Add 1 to AL since display_selected_product function decrements product_id
+    mov product_id, al            ; Load AL (with SI value) into product_id
+    sub al, 1                     ; Sub 1 from AL
+    call display_selected_product ; Display product name and quantity
+
+    ; Calculate subtotal
+    shl si, 1                   ; Shift SI one bit left (multiply 2)
+    mov ax, preset_price[si]    ; Load price to AL. (We multiply since preset_price is word, hence 2 bytes)
+    shr si, 1                   ; Shift SI one bit right (divide 2, return to original)
+    mov bl, product_qty[si]     ; Load quantity to BL
+    xor bh, bh                  ; Clear BH
+    mul bx                      ; AX multiplies BX to get total (price * quantity = total)
+    mov result, ax              ; Store the total into result
+
+    ; Add to total
+    add total_result, ax
+
+    ; Display subtotal
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    mov ah, 09h
+    lea dx, msg_subtotal
+    int 21h
+
+    push si             ; Save SI value
+    call display_price
+    pop si              ; Load SI value
+
+    inc si
+    pop cx
+    loop display_price_loop
+
+    ; Display total
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, newline
+    int 21h
+    lea dx, msg_total
+    int 21h
+    
+    mov ax, total_result
+    mov result, ax
+    call display_price
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, msg_continue
+    int 21h
+
+    ; Pause before continue
+    mov ah, 01h
+    int 21h
+
+    pop si
+    pop ax
+    pop bx
+    pop dx
+
+    jmp menu_loop
+
+invalid_product:
+    mov ah, 09h
+    lea dx, msg_invalid_product
+    int 21h
+    mov ah, 01h
+    int 21h
+    jmp transaction_loop
+
+invalid_quantity:
+    mov ah, 09h
+    lea dx, msg_invalid_quantity
+    int 21h
+    mov ah, 01h
+    int 21h
+    jmp transaction_loop
+
+max_quantity_reached:
+    mov ah, 09h
+    lea dx, msg_max_quantity
+    int 21h
+    mov ah, 01h
+    int 21h
+    jmp transaction_loop
+
+option_2:
+    ; Placeholder for Show product
+    jmp menu_loop
+
+option_3:
+    ; Placeholder for Show cashbox
+    jmp menu_loop
+
+exit_program:
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, msg_exit
+    int 21h
 
     mov ax, 4C00h
     int 21h
 
 main endp
 
-login proc
-    mov ax, @data
-    mov ds, ax
+login proc ;Login - Thee Hao Siang
 
     ;Display colored store name
     call display_company_colour_name
@@ -64,7 +389,7 @@ login_loop:
 
     ; Prompt for username
     mov ah, 09h
-    lea dx, prompt_user
+    lea dx, prompt_username
     int 21h
 
     ; Get username input
@@ -74,7 +399,7 @@ login_loop:
 
     ; Null-terminate the string after the input length
     lea di, inputdata
-    mov cl, [input_buffer + 1] ; Get length of user input
+    mov cl, byte ptr [input_buffer + 1] ; Get length of user input
     add di, cx                ; Move DI to the end of the input string
     mov byte ptr [di], 0      ; Null-terminate the input
 
@@ -91,7 +416,7 @@ login_loop:
 
     ; Prompt for password
     mov ah, 09h
-    lea dx, prompt_pass
+    lea dx, prompt_password
     int 21h
 
     ; Get password input
@@ -111,9 +436,8 @@ login_loop:
     call compare_strings
     jnz login_failed ; if ZF != 0 (failed), jump
 
-    ; Call success_login_menu procedure
-    call success_login_menu
-    jmp exit
+    ; Login succeed
+    jmp success_login
 
 login_failed:
 
@@ -130,7 +454,7 @@ login_failed:
     je too_many_attempts
 
     mov ah, 09h
-    lea dx, msg_failure
+    lea dx, msg_failure_login
     int 21h
 
     ; Print newline
@@ -142,7 +466,7 @@ login_failed:
 
 too_many_attempts:
     mov ah, 09h
-    lea dx, msg_attempts
+    lea dx, msg_attempts_finished
     int 21h
 
 exit:
@@ -151,90 +475,159 @@ exit:
 
 login endp
 
+display_selected_product proc ;Display Product
+    push ax
+    push bx
+    push dx
+    push si
+    push di
 
-success_login_menu proc
-    ; Clear the screen
-    mov ah, 06h  ; scroll up function
-    mov al, 0    ; clear entire screen
-    mov bh, 07h  ; attribute (white on black)
-    mov cx, 0    ; start at row 0, column 0
-    mov dh, 24   ; end at row 24 (bottom of screen)
-    mov dl, 79   ; end at column 79 (right edge of screen)
-    int 10h      ; execute BIOS video interrupt
-
-menu_loop:
-    ; Set cursor position to top-left corner
-    mov ah, 02h  ; set cursor position
-    mov bh, 0    ; page number
-    mov dh, 0    ; row
-    mov dl, 0    ; column
-    int 10h
-
-    call display_company_colour_name ; company name
-
-    ; Print success message
-    mov ah, 09h
-    lea dx, msg_success
-    int 21h
-
-    ; Print menu
-    mov ah, 09h
-    lea dx, menu
-    int 21h
-
-    ; Prompt for user input
-    mov ah, 09h
-    lea dx, prompt_choice
-    int 21h
-
-    ; Get user input
-    mov ah, 01h
-    int 21h
-
-    ; Check user input
-    cmp al, '1'
-    je option_1
-    cmp al, '2'
-    je option_2
-    cmp al, '3'
-    je option_3
-    cmp al, '4'
-    je exit_program
-
-    ; Print newline
     mov ah, 09h
     lea dx, newline
     int 21h
+    lea dx, msg_selected_product
+    int 21h
 
-    ; If we get here, input was invalid
+    mov bl, product_id          ; Load product_id into BL
+    dec bl                      ; Adjust for 0-based index
+    mov bh, 0                   ; Clear BH
+    mov si, bx                  ; Move BX (product_id value) into SI
+    mov al, product_lengths[si] ; Get the length of the product name
+    mov cl, al                  ; Move length into CL
+    mov ch, 0                   ; Clear high byte of CX
+
+    ; Calculate the offset for the selected product name
+    lea si, product_a   ; Load offset address of product_a
+    mov al, bl          ; Load product_id into AL
+    mov ah, 12          ; Length of each product name including null terminator
+    mul ah              ; AX multiplies AH to get actual address of selected product
+    add si, ax          ; Add SI with the actual address
+
+    mov di, offset current_product
+copy_product_name:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop copy_product_name
+
+    mov byte ptr [di], '$'  ; Null-terminate the string
+
     mov ah, 09h
-    lea dx, invalid_input
+    lea dx, current_product
     int 21h
 
-    ; Wait for a key press
-    mov ah, 01h
+    ; Display current quantity
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, msg_current_quantity
     int 21h
 
-    jmp menu_loop
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, [product_qty + bx]
+    add al, '0'
+    mov dl, al
+    mov ah, 02h
+    int 21h
 
-option_1:
-    ; Placeholder for Start transaction
-    jmp menu_loop
-
-option_2:
-    ; Placeholder for Show product
-    jmp menu_loop
-
-option_3:
-    ; Placeholder for Show cashbox
-    jmp menu_loop
-
-exit_program:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
     ret
+display_selected_product endp
 
-success_login_menu endp
+display_price proc ;Display Price
+    ; Convert the result to ASCII for display
+    lea si, buffer
+    mov cx, 5       ; Loop 5 times for 5 bytes in buffer (max 5 digits)
+    add si, 4       ; Start from the end of buffer (leave 1 extra $ for end string)
+    mov ax, result  ; Move result to AX
 
-display_company_colour_name proc
+    ; Extract and convert each digit
+convert_loop:
+    xor dx, dx          ; Clear DX for division
+    mov bx, 10          ; Base 10 for conversion
+    div bx              ; AX = AX / 10, DX = remainder (last digit)
+    add dl, 30h         ; Convert digit to ASCII
+    mov [si], dl        ; Store the digit in the buffer
+    dec si              ; Move to the next buffer position
+    loop convert_loop
+
+    ; Extract the cents
+    lea si, buffer           ; Points SI to starting address of buffer
+    mov ax, word ptr [si+3]  ; Loads the last two digits into cent_result
+    mov cent_result, ax
+
+    ; Ensure the buffer is in the correct format (00.00)
+    mov byte ptr [si+3], '.'
+    mov byte ptr [si+4], '$'
+
+    ; Remove leading zeros
+    lea si, buffer          ; Points SI to starting address of buffer
+    mov cx, 3               ; We'll check the first 3 digits (before the decimal point)
+remove_leading_zeros:
+    cmp byte ptr [si], '0'  ; Check for leading '0'
+    jne display_result      ; If found non-zero number, display the price
+    mov byte ptr [si], ' '  ; Replace '0' with space
+    inc si
+    loop remove_leading_zeros
+
+display_result:
+    ; Display the price
+    mov ah, 09h
+    lea dx, buffer
+    int 21h
+
+    mov ah, 09h
+    lea dx, cent_result
+    int 21h
+
+    ret
+display_price endp
+
+compare_strings proc ;Compare two strings (using SI and DI (input))
+    push cx ; Save original CX value in stack
+    push dx ; Save original DX value in stack
+
+    xor cx, cx ; Initialize character counter to 0
+
+compare_loop:
+    mov dl, [si]    ; Load character from first string
+    cmp dl, [di]    ; Compare with character from second string (input)
+    jne compare_end ; Jump if characters don't match
+
+    cmp dl, 0        ; Check if we reached the null terminator
+    je compare_match ; If both strings have the same length, they match
+
+    inc si           ; Move to next character in first string
+    inc di           ; Move to next character in second string
+    loop compare_loop ; Continue comparing characters
+
+compare_match:
+    cmp byte ptr [si], 0 ; Check if first string is at null terminator
+    jne compare_end      ; If not, strings don't match
+    cmp byte ptr [di], 0 ; Check if second string is at null terminator
+    jne compare_end      ; If not, strings don't match
+
+    pop dx     ; Restore original DX value
+    pop cx     ; Restore original CX value
+    xor ax, ax ; Set ZF to 0 for match
+    ret        ; Return ZF 0 (MATCH)
+
+compare_end:
+    pop dx     ; Restore original DX value
+    pop cx     ; Restore original CX value
+    or ax, ax ; Set ZF to 1 for no match
+    ret       ; Return ZF 1 (NO MATCH)
+
+compare_strings endp
+
+display_company_colour_name proc ;Thee Chern Hao
     ; Save registers to preserve their original values
     push ax
     push bx
@@ -299,41 +692,42 @@ done:
     ret                  ; Return from the procedure
 display_company_colour_name endp
 
-compare_strings proc ; COMPARE TWO STRINGS (using SI and DI (input))
-    push cx ; Save original CX value in stack
-    push dx ; Save original DX value in stack
+clear_screen proc ;Clear Screen
+    ; Set up the registers for clearing the screen
+    mov ah, 06h  ; Function 06h (scroll up)
+    mov al, 0    ; Clear entire screen
+    mov bh, 07h  ; Attribute (white on black)
+    mov cx, 0    ; Start at row 0, column 0
+    mov dh, 24   ; End at row 24 (bottom of screen)
+    mov dl, 79   ; End at column 79 (right edge of screen)
+    int 10h      ; Execute BIOS video interrupt
 
-    xor cx, cx ; Initialize character counter to 0
+    ; Set cursor to top-left corner
+    mov ah, 02h  ; Function 02h (set cursor position)
+    mov bh, 0    ; Page number (usually 0)
+    mov dx, 0    ; Row 0, column 0
+    int 10h      ; Execute BIOS video interrupt
 
-compare_loop:
-    mov dl, [si]    ; Load character from first string
-    cmp dl, [di]    ; Compare with character from second string (input)
-    jne compare_end ; Jump if characters don't match
+    ret
+clear_screen endp
 
-    cmp dl, 0        ; Check if we reached the null terminator
-    je compare_match ; If both strings have the same length, they match
+scroll_screen proc ;Scroll Screen
+    ; Set up the registers for scrolling the screen
+    mov ah, 06h  ; Function 06h (scroll up)
+    mov al, 1    ; Scroll by 1 line
+    mov bh, 07h  ; Attribute (white on black)
+    mov cx, 0    ; Start at row 0, column 0
+    mov dh, 24   ; End at row 24 (bottom of screen)
+    mov dl, 79   ; End at column 79 (right edge of screen)
+    int 10h      ; Execute BIOS video interrupt
 
-    inc si           ; Move to next character in first string
-    inc di           ; Move to next character in second string
-    loop compare_loop ; Continue comparing characters
+    ; Set cursor to top-left corner
+    mov ah, 02h  ; Function 02h (set cursor position)
+    mov bh, 0    ; Page number (usually 0)
+    mov dx, 0    ; Row 0, column 0
+    int 10h      ; Execute BIOS video interrupt
 
-compare_match:
-    cmp byte ptr [si], 0 ; Check if first string is at null terminator
-    jne compare_end      ; If not, strings don't match
-    cmp byte ptr [di], 0 ; Check if second string is at null terminator
-    jne compare_end      ; If not, strings don't match
-
-    pop dx     ; Restore original DX value
-    pop cx     ; Restore original CX value
-    xor ax, ax ; Set ZF to 0 for match
-    ret        ; Return ZF 0 (MATCH)
-
-compare_end:
-    pop dx     ; Restore original DX value
-    pop cx     ; Restore original CX value
-    or ax, ax ; Set ZF to 1 for no match
-    ret       ; Return ZF 1 (NO MATCH)
-
-compare_strings endp
+    ret
+scroll_screen endp
 
 end main
