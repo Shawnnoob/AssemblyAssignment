@@ -120,11 +120,13 @@
                  db "|         Products           |   Stock   |", 0dh, 0ah
                  db "|----------------------------|-----------|", 0dh, 0ah
     input_firstdigit db "First digit cannot be more than 9!/invalid input! $"
+    current_stock_msg db "Current stock: $",0dh,0ah
                  
     restock_A db '1'
     restock_B db '2'
     restock_C db '3'
     restock_D db '4'
+    msg_insufficient_stock db "No enough stock to let the customer buy $",0dh,0ah
 
     product_1   db "1. Tissue                  $"
     product_2   db "2. Toothpaste              $"
@@ -611,6 +613,51 @@ copy_product_name:
     mov ah, 02h
     int 21h
 
+    mov ah,09h
+    lea dx,newline
+    int 21h
+    lea dx,current_stock_msg
+    int 21h
+
+    ; Update stock after purchase
+    ; Get the quantity the user purchased from product_qty
+    mov al, [product_qty + bx]    ; Load the quantity the user bought into AL
+
+    ; Get the current stock from product_qty_store
+    mov bl, product_id
+    dec bl                        ; Adjust for 0-based index
+    mov ah, [product_qty_store + bx] ; Load current stock into AH
+
+    ; Check if there is enough stock
+    cmp ah, al                    ; Compare stock (AH) with quantity bought (AL)
+    jb insufficient_stock         ; Jump if stock is less than the quantity bought
+
+    sub ah, al                    ; Subtract quantity bought from stock
+    mov [product_qty_store + bx], ah ; Store the updated stock
+
+    mov al, [product_qty_store + bx] ; Load updated stock
+    add al, '0'                      ; Convert to ASCII
+    mov dl, al
+    mov ah, 02h
+    int 21h
+
+    jmp done1
+
+insufficient_stock:
+    ; Display 0 to indicate no stock available
+    mov dl, '0'         ; Load ASCII '0' into DL
+    mov ah, 02h         ; DOS function to display a character
+    int 21h
+
+    mov ah,09h
+    lea dx,newline
+    int 21h
+    ; Display insufficient stock message
+    mov ah, 09h
+    lea dx, msg_insufficient_stock
+    int 21h
+
+done1:
     pop di
     pop si
     pop dx
