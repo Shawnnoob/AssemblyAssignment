@@ -1,10 +1,10 @@
 .model small
 .stack 100h
 .data
-    product_list  db 'Tissue     ', 0
-                    db 'Toothpaste ', 0
-                    db 'Body Wash  ', 0
-                    db 'Cotton Buds', 0
+    product_list  db 'Tissue     ', '$'
+                  db 'Toothpaste ', '$'
+                  db 'Body Wash  ', '$'
+                  db 'Cotton Buds', '$'
     preset_price dw 120, 1220, 1590, 100 ; Product price (in cents)
     product_qty db 2, 2, 2, 2 ; Chosen quantity for each product (assumed to be 2)
     result dw ?                 ; Variable to store the result
@@ -71,8 +71,6 @@ product_loop:
     mov ah, 09h
     lea dx, msg_total
     int 21h
-
-    mov total
 
     ; Exit program
     mov ah, 4Ch
