@@ -352,8 +352,13 @@ display_price_loop:
     add al, 1                     ; Add 1 to AL since display_selected_product function decrements product_id
     mov product_id, al            ; Load AL (with SI value) into product_id
     sub al, 1                     ; Sub 1 from AL
-    call display_selected_product ; Display product name and quantity
+    
 
+    mov bl, product_qty[si]        ; Load quantity to BL
+    cmp bl, 0                      ; Compare product_qty with 0
+    je skip_product                ; If qty is 0, skip to the next product
+
+    call display_selected_product ; Display product name and quantity
     ; Calculate subtotal
     shl si, 1                   ; Shift SI one bit left (multiply 2)
     mov ax, preset_price[si]    ; Load price to AL. (We multiply since preset_price is word, hence 2 bytes)
@@ -379,6 +384,11 @@ display_price_loop:
     pop si              ; Load SI value
 
     inc si
+    pop cx
+    loop display_price_loop
+
+skip_product:
+    inc si                         ; Increment product index
     pop cx
     loop display_price_loop
 
