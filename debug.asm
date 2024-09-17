@@ -5,17 +5,15 @@
                  db "|    ABC Retail    |", 0dh, 0ah
                  db "--------------------", 0dh, 0ah, 0
     menu db "-----------------------------------", 0dh, 0ah
-         db "|        1. Start transaction     |", 0dh, 0ah
-         db "|        2. Show product          |", 0dh, 0ah
-         db "|        3. Show cashbox          |", 0dh, 0ah
-         db "|        4. Exit program          |", 0dh, 0ah
+         db "|       1. Start transaction      |", 0dh, 0ah
+         db "|       2. Show product           |", 0dh, 0ah
+         db "|       3. Show cashbox           |", 0dh, 0ah
+         db "|       4. Restock product        |", 0dh, 0ah
+         db "|       5. Exit program           |", 0dh, 0ah
          db "-----------------------------------", 0dh, 0ah, '$'
-    newline db 0dh,0ah,'$'
-    username db "admin", 0
-    password db "password", 0
 
     product_menu db "==========================================", 0dh, 0ah
-                 db "|         Products           |   Price   |", 0dh, 0ah
+                 db "|         Products           | Price(RM) |", 0dh, 0ah
                  db "|----------------------------|-----------|", 0dh, 0ah
                  db "| 1. Tissue                  |    1.20   |", 0dh, 0ah
                  db "| 2. Toothpaste              |   12.20   |", 0dh, 0ah
@@ -23,55 +21,133 @@
                  db "| 4. Cotton Buds             |    1.00   |", 0dh, 0ah
                  db "------------------------------------------", '$'
 
-    ; Products: ID (1 byte), Name (20 bytes)
-    product db 1, "Tissue              "
-            db 2, "Toothpaste          "
-            db 3, "Body Wash           "
-            db 4, "Cotton Buds         "
-    ; Price (2 bytes)
-    preset_price dw 120
-                  dw 1220
-                  dw 1590
-                  dw 100
-
-    product_count db 4
-    product_size equ 21 ; 1 + 20 = length of product (bytes)
-
-    ; Variables for accessing current/chosen product information
-    product_id db ?
-    product_name db 20 dup('0')
-    product_price dw ?
-
-    price_string db 10 dup(0)  ; Buffer to hold the price string
+    newline db 0dh,0ah,'$'
+    username db "admin", 0
+    password db "password", 0
+    attempts db 3  ; Counter for login attempts
 
     input_buffer label byte ; User input characters (strings)
     maxlen db 20
     actlen db ?
     inputdata db 20 dup (0)
 
-    ; Data for transaction function
-    total dw 0
-    total_str db 6 dup(0), '$'
-    prompt_quantity db "Enter quantity (1-3): $"
-    msg_invalid_quantity db "Invalid quantity. Please enter 1, 2, or 3.", 0Dh, 0Ah, '$'
-    msg_total db "Total: $", 0Dh, 0Ah, '$'
+    product_a db 'Tissue     ', 0
+    product_b db 'Toothpaste ', 0
+    product_c db 'Body Wash  ', 0
+    product_d db 'Cotton Buds', 0
 
-    prompt_user db 'Enter username: $'
-    prompt_pass db 'Enter password: $'
-    msg_success db 'Login successful!'
-                db 0dh, 0ah, '$'
-    msg_failure db 'Incorrect username / password. Please try again.$'
-    msg_attempts db 'Too many failed attempts. Exiting...$'
-    attempts db 3  ; Counter for login attempts
-    prompt_choice_1 db 'Enter your choice (1-4): $'
+    product_lengths db 11, 11, 11, 11     ; Lengths of each product name
+    product_qty db 0, 0, 0, 0             ; Chosen quantity for each product
+    preset_price dw 120, 1220, 1590, 100  ; Product price in cents
+
+    product_id db ?                 ; Buffer to store current product ID
+    current_product db 20 dup('$')  ; Buffer to store current product name
+    quantity db ?                   ; Buffer to store quantity user inputs
+
+    result dw ?                 ; Variable to store the result of transaction
+    cent_result dw ' ', '$'     ; Variable to store the result for cent
+    total_result dw 0           ; Variable to store the total price
+    buffer db 6 dup('$')        ; Buffer to hold the ASCII representation of the transaction result
+
+    prompt_username db 'Enter username: $'
+    prompt_password db 'Enter password: $'
+    msg_success_login db 'Login successful! $'
+    msg_failure_login db 'Incorrect username/password. Please try again.$'
+    msg_attempts_finished db 'Too many failed attempts. Exiting program...$'
+
+    prompt_menu_choice db 'Enter your choice (1-4): $'
     prompt_product_id db 'Enter product ID: $'
-    prompt_more_products db 13, 10, 'Do you want to purchase more products? (Y/N): $'
-    selected_product_msg db 13, 10, 'Selected product: $'
-    msg_invalid_product db 13, 10, "Invalid product ID. Please try again.", 13, 10, '$'
-    invalid_input db 'Invalid input. Enter to try again with a correct number.'
-                  db 0dh, 0ah, '$'
-    msg_exit db "Exiting program. Thank you for using ABC Retail!"
-             db 0dh, 0ah, '$'
+    prompt_quantity db 'Enter quantity (1-3): $'
+    prompt_more_product db 'Do you want to buy more products? (Y/N): $'
+    msg_selected_product db 13, 10, 'Selected product: $'
+    msg_current_quantity db 'Current quantity (max 3 per item): $'
+    msg_invalid_product db 13, 10, 'Invalid product ID. Enter to try again.$'
+    msg_invalid_quantity db 13, 10, 'Invalid input/quantity. Enter to try again.$'
+    msg_invalid_input db 'Invalid input. Enter to try again with a correct number. $'
+    msg_exit db 'Exiting program. Thank you for using ABC Retail! $'
+    msg_max_quantity db 13, 10, 'Maximum quantity reached for this product. Enter to continue.$'
+    msg_subtotal db 'Subtotal: RM$'
+    msg_total db 'Total: RM$'
+    msg_continue db 'Press enter to continue...$'
+
+;----------------------------------Receipt-------------------------------------------
+    receipt_start   db "===========================================", 0dh, 0ah
+                    db "|               Receipt                   |", 0dh, 0ah
+                    db "-------------------------------------------", 0dh, 0ah
+                    db "Product Name         QTY        Amount(RM) ", 0dh, 0ah
+                    db "                                           $", 0dh, 0ah
+
+    receipt_middle db "-------------------------------------------$", 0dh, 0ah
+
+    receipt_end     db  "-------------------------------------------", 0dh, 0ah
+                    db  "          Thanks You Very Much              ", 0dh, 0ah           
+                    db  "            Have A Nice Day                 ", 0dh, 0ah
+                    db  "===========================================", 0dh, 0ah
+                    db  "                                           $", 0dh, 0ah
+
+    wkz_subTotal    db  "SubTotal                       |$", 0dh, 0ah
+    discount    db "Discount                           $", 0dh, 0ah
+    sst         db "SST(8%)                            $", 0dh, 0ah
+    wkz_total       db "Total                              $", 0dh, 0ah   
+
+    print   db "Do you want to print the receipt?", 0dh, 0ah
+            db "      a - Yes  b - No            ", 0dh, 0ah
+            db "$"
+
+    enter_choice db "Enter your choice: $", 0dh, 0ah
+
+    printing    db "===============================",0dh,0ah
+                db "Printing......                ", 0dh, 0ah
+                db "Press Enter to process       ", 0dh, 0ah
+                db "$"
+    product_column equ 5
+    qty_column equ 15
+    subtotal_column equ 20
+    price_column equ 10
+
+;----------------------------------------------addStock------------------------------
+    error db "Invalid input please try again.$"
+    Pause_Msg db "Press any key to continue...$",0dh,0ah
+    Restock_Msg db "Enter the (1,2,3,4) to restock the product:$",0dh,0ah
+
+    restock_heading   db "===========================================", 0dh, 0ah
+                      db "|              Add stock                   |", 0dh, 0ah
+                      db "-------------------------------------------", 0dh, 0ah
+                      db "$"
+
+    restock_confirm_msg db "Are you sure you want to restock? (Y/N):$",0dh,0ah
+    restock_cancel_msg db "Canceled restock... $"
+    restock_success_msg db "Success to restock the product...$"
+    restock_maxMsg_msg db "Stock exceed 99! please try again. $"
+    restock_inputMsg_msg db "Enter the quantity you want to restock(Enter 2 digits/x to exit): $"
+
+    restock_prod db "==========================================", 0dh, 0ah
+                 db "|         Products           |   Stock   |", 0dh, 0ah
+                 db "|----------------------------|-----------|", 0dh, 0ah
+    input_firstdigit db "First digit cannot be more than 9!/invalid input! $"
+    current_stock_msg db "Current stock: $",0dh,0ah
+                 
+    restock_A db '1'
+    restock_B db '2'
+    restock_C db '3'
+    restock_D db '4'
+    msg_insufficient_stock db "No enough stock to let the customer buy $",0dh,0ah
+
+    product_1   db "1. Tissue                  $"
+    product_2   db "2. Toothpaste              $"
+    product_3   db "3. Body Wash               $"
+    product_4   db "4. Cotton Buds             $"
+    restock_Exit db    "x.Exit$"
+    
+    restock_x db 0
+    restock_y db 0     
+    product_qty_store db 3, 6, 9, 5
+    summary db 0 , 0 , 0 , 0 
+    msg_confirm_purchase db "Do you want to purchase?(Y/N):$"
+    msg_purchase_cancelled db "The purchase cancelled.$"
+    confirmation_flag db 0
+    space_padding db '    ', 24h     ; Four spaces for padding
+
 
 .code
 
@@ -79,21 +155,95 @@ main proc
     mov ax, @data
     mov ds, ax
 
- ; Clear the screen
-    mov ah, 06h
-    xor al, al
-    xor cx, cx
-    mov dx, 184Fh
-    mov bh, 07h
-    int 10h
+    call login ; Will terminate program if login attempt exceeds 3 times
 
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+success_login: ; Clear the input_buffer
+    mov si, OFFSET input_buffer  ; Load the starting address of input_buffer into SI
+    mov cx, 20                   ; Load the size of the buffer (50 bytes) into CX
+    mov al, 0                    ; We will fill the buffer with 0 (null)
 
+clear_loop:
+    mov [si], al                 ; Set current byte to 0
+    inc si                       ; Move to the next byte in the buffer
+    loop clear_loop              ; Repeat until CX = 0 (end of buffer)
+
+menu_loop:
+    ; Clear the screen
+    call clear_screen
+    ; Print company name
+    call display_company_colour_name 
+
+    ; Print success message
+    mov ah, 09h
+    lea dx, msg_success_login
+    int 21h
+    lea dx, newline
+    int 21h
+
+    ; Print menu
+    lea dx, menu
+    int 21h
+
+    ; Prompt for user input
+    mov ah, 09h
+    lea dx, prompt_menu_choice
+    int 21h
+
+    ; Get user input
+    mov ah, 01h
+    int 21h
+
+    ; Check user input
+    cmp al, '1'
+    je start_transaction
+    cmp al, '2'
+    je option_2_jmp
+    jmp to_option_3
+option_2_jmp:
+    jmp option_2
+to_option_3:
+    cmp al, '3'
+    je option_3_jmp
+    jmp to_option_4
+option_3_jmp:
+    jmp option_3
+option_4_jmp:
+    jmp option_4
+to_option_4:
+    cmp al,'4'
+    je option_4_jmp
+    jmp to_option_5
+to_option_5:
+    cmp al, '5'
+    je exit_program_jmp
+    jmp to_invalid
+exit_program_jmp:
+    jmp exit_program
+to_invalid:
+    jmp invalid_choice
+
+invalid_choice:
+    ; Print newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; If we get here, input was invalid
+    mov ah, 09h
+    lea dx, msg_invalid_input
+    int 21h
+
+    ; Wait for a key press
+    mov ah, 01h
+    int 21h
+
+    jmp menu_loop
+
+start_transaction:
+    ; Clear the screen
+    call clear_screen
+
+transaction_loop:
     ; Display company logo
     call display_company_colour_name
 
@@ -102,108 +252,41 @@ main proc
     lea dx, product_menu
     int 21h
 
-    ; Initialize total
-    mov word ptr [total], 0
-
-transaction_loop:
-
     mov ah, 09h
     lea dx, newline
     int 21h
 
-    ; Ask user to enter product ID
+    ; Prompt for product ID
     mov ah, 09h
     lea dx, prompt_product_id
     int 21h
 
     ; Get product ID input
-    mov ah, 01h  ; Reads single character
+    mov ah, 01h
     int 21h
-    sub al, 48  ; Convert ASCII to number (char - 48)
-    mov bl, al   ; Store product ID in BL
+    sub al, '0'  ; Convert ASCII to number
+    mov product_id, al
 
     ; Validate product ID
-    cmp bl, 1
+    cmp al, 1
     jl invalid_product_jmp
-    cmp bl, [product_count]
+    cmp al, 4
     jg invalid_product_jmp
-    
-    jmp pass1
-
+    jmp valid_product
 invalid_product_jmp:
     jmp invalid_product
 
-pass1:
-
-    ; Adjust BL to be 0-based index
-    dec bl
-
-    ; Load product info
-    push ax
-    push bx
-    push si
-    push di
-    
-    ; Calculate product address
-    mov ax, product_size     ; Move the size of product into AX
-    mul bl                   ; AX multiplies by BL (index of product) to get the offset of chosen product 
-    add ax, offset product   ; Add the offset address of product array to get actual address of product (Points to start of chosen product in product array)
-    mov si, ax               ; Result is stored in SI (Points to the chosen product)
-    
-    ; Load ID
-    mov al, [si]             ; Put product id into AL
-    mov [product_id], al     ; Store value into product_id variable
-    inc si                   ; Increment SI to continue to product name
-    
-    ; Clear the product_name buffer
-    mov cx, 20                ; Set CX to 20, the length of product_name
-    mov di, offset product_name  ; DI points to the start of product_name
-    xor al, al                 ; Set AL to 0 (null character)
-
-clear_product_name:
-    mov [di], al           ; Store 0 (null) at the current position in product_name
-    inc di                 ; Move to the next position
-    loop clear_product_name      ; Repeat until CX = 0 (cleared 20 bytes)
-
-    ; Load Name
-    mov cx, 20                   ; Set counter to 20 (length of product name)
-    mov di, offset product_name  ; DI points to address of product_name
-    
-load_name_loop:
-    mov al, [si]        ; Load a character from the source (product array)
-    mov [di], al        ; Store the character in the destination (product_name)
-    inc si              ; Move to next character in source
-    inc di              ; Move to next position in destination
-    loop load_name_loop ; Decrement CX and repeat until CX = 0
-    
-    ; Load Price
-    xor ax, ax                    ; Clear AX
-    mov al, bl                    ; Move the product index (0-3) to AL
-    shl ax, 1                     ; Multiply by 2 to get the address of the desired price (each price is 2 bytes)
-    mov si, offset preset_price   ; Load the address of preset_price array into SI
-    add si, ax                    ; Add the offset address in AX to get the actual address of price
-    mov ax, [si]                  ; Load the value of price into AX
-    mov [product_price], ax       ; Store the value of price into product_price variable
-    
-    pop di
-    pop si
-    pop bx
-    pop ax
-
-    ; Display selected product
-    mov ah, 09h
-    lea dx, selected_product_msg
-    int 21h
+valid_product:
+    ; Display selected product and current quantity
+    call display_selected_product
 
     mov ah, 09h
-    lea dx, product_name
+    lea dx, newline
     int 21h
-
-    mov ah,09h
     lea dx, newline
     int 21h
 
-    ; Ask for quantity
+    ; Prompt for quantity
     mov ah, 09h
     lea dx, prompt_quantity
     int 21h
@@ -212,41 +295,295 @@ load_name_loop:
     mov ah, 01h
     int 21h
     sub al, '0'  ; Convert ASCII to number
+    mov quantity, al
 
-    ; Validate quantity (1-3)
+    ; Validate quantity
     cmp al, 1
-    jl invalid_quantity
+    jl invalid_quantity_jmp
     cmp al, 3
-    jg invalid_quantity
+    jg invalid_quantity_jmp
+    jmp valid_quantity
+invalid_quantity_jmp:
+    jmp invalid_quantity
 
-    ; Calculate price
-    mov bl, al  ; Store quantity in BL
-    mov ax, [product_price]
-    mul bx
-    add [total], ax
+valid_quantity:
+    ; Check if adding the quantity will exceed the maximum limit
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, [product_qty + bx]
+    add al, quantity
+    cmp al, 3
+    jg max_quantity_reached_msg
+    jmp valid_quantity_2
+max_quantity_reached_msg:
+    jmp max_quantity_reached
 
-    ; Ask if user wants to purchase more
+valid_quantity_2:
+    ; Update product quantity
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, quantity
+    add [product_qty + bx], al
+
+    ; Ask if user wants to continue shopping
     mov ah, 09h
-    lea dx, prompt_more_products
+    lea dx, newline
     int 21h
-
-    ; Get user input (Y/N)
+    lea dx, prompt_more_product
+    int 21h
     mov ah, 01h
     int 21h
+
     cmp al, 'Y'
     je transaction_loop_jmp
     cmp al, 'y'
     je transaction_loop_jmp
+    cmp al, 'n'
+    je jmp_confirmation
+    cmp al, 'N'
+    je jmp_confirmation
 
-    ; Transaction complete
-    jmp transaction_complete
+    jmp handle_cancellation
+
+handle_cancellation:
+    ; Display a message indicating that the purchase was canceled
+    mov ah, 09h
+    lea dx, msg_purchase_cancelled ; "Purchase has been canceled."
+    int 21h
+
+    ; Pause for user to read the message
+    mov ah, 01h
+    int 21h
+
+    ; Optionally, return to the main menu or another process
+    jmp menu_loop                 ; Jump back to the main menu or another process 
+
+jmp_to_display_total:
+    jmp to_display_total
 
 transaction_loop_jmp:
     jmp transaction_loop
 
+jmp_confirmation:
+    call confirm_purchase
+
+    cmp confirmation_flag , 1
+    jne jmp_back
+    jmp to_display_receipt
+
+jmp_back:
+    jmp menu_loop
+
+
+to_display_receipt:
+    call clear_screen
+    call display_company_colour_name
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    mov ah,09h
+    lea dx,receipt_start
+    int 21h
+    ;Display product name, qty and price
+    push si
+    push ax
+    push bx
+    push dx
+
+    mov cx, 4   ; Loop 4 times for 4 products
+    mov si, 0   ; Move SI to 0 for index
+display_receipt_loop:
+    push cx
+    mov ax, si                    ; Move SI into AX
+    xor ah, ah                    ; Clear AH
+    add al, 1                     ; Add 1 to AL since display_selected_product function decrements product_id
+    mov product_id, al            ; Load AL (with SI value) into product_id
+    sub al, 1                     ; Sub 1 from AL
+    
+
+    mov bl, product_qty[si]        ; Load quantity to BL
+    cmp bl, 0                      ; Compare product_qty with 0
+    je skip_product1                ; If qty is 0, skip to the next product
+
+    call display_receipt_product ; Display product name and quantity
+
+; Display product quantity
+    mov bl, product_qty[si]        ; Load quantity
+    add bl, '0'                    ; Convert to ASCII
+    mov dl, bl                     ; Move quantity into DL for display  
+    mov ah, 02h
+    int 21h                        ; Display quantity
+
+    ; Add space padding adjust the subtotal
+    mov ah,09h
+    lea dx, space_padding
+    int 21h
+    lea dx, space_padding
+    int 21h
+    
+    ; Calculate subtotal
+    shl si, 1                   ; Shift SI one bit left (multiply 2)
+    mov ax, preset_price[si]    ; Load price to AL. (We multiply since preset_price is word, hence 2 bytes)
+    shr si, 1                   ; Shift SI one bit right (divide 2, return to original)
+    mov bl, product_qty[si]     ; Load quantity to BL
+    xor bh, bh                  ; Clear BH
+    mul bx                      ; AX multiplies BX to get total (price * quantity = total)
+    mov result, ax              ; Store the total into result
+
+    ; Add to total
+    add total_result, ax
+
+
+    push si             ; Save SI value
+    call display_price
+    pop si              ; Load SI value
+
+    inc si
+    pop cx
+    loop display_receipt_loop
+
+skip_product1:
+    inc si                         ; Increment product index
+    pop cx
+    loop display_receipt_loop
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h 
+    lea dx,receipt_middle
+    int 21h
+    lea dx,newline
+    int 21h
+    ; Display total
+    mov ah, 09h
+    lea dx, wkz_subTotal
+    int 21h
+   
+    mov ax, total_result
+    mov result, ax
+    call display_price
+
+    mov ah,09h
+    lea dx, newline
+    int 21h
+    lea dx,receipt_end
+    int 21h
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    
+    call Ask_Print_Receipt
+
+    ; Pause before continue
+    mov ah, 01h
+    int 21h
+
+    pop si
+    pop ax
+    pop bx
+    pop dx
+
+    jmp menu_loop
+
+
+to_display_total:
+    call clear_screen
+    call display_company_colour_name
+    ;Display product name, qty and price
+    push si
+    push ax
+    push bx
+    push dx
+
+    mov cx, 4   ; Loop 4 times for 4 products
+    mov si, 0   ; Move SI to 0 for index
+display_price_loop:
+    push cx
+    mov ax, si                    ; Move SI into AX
+    xor ah, ah                    ; Clear AH
+    add al, 1                     ; Add 1 to AL since display_selected_product function decrements product_id
+    mov product_id, al            ; Load AL (with SI value) into product_id
+    sub al, 1                     ; Sub 1 from AL
+    
+
+    mov bl, product_qty[si]        ; Load quantity to BL
+    cmp bl, 0                      ; Compare product_qty with 0
+    je skip_product                ; If qty is 0, skip to the next product
+
+    call display_selected_product ; Display product name and quantity
+    ; Calculate subtotal
+    shl si, 1                   ; Shift SI one bit left (multiply 2)
+    mov ax, preset_price[si]    ; Load price to AL. (We multiply since preset_price is word, hence 2 bytes)
+    shr si, 1                   ; Shift SI one bit right (divide 2, return to original)
+    mov bl, product_qty[si]     ; Load quantity to BL
+    xor bh, bh                  ; Clear BH
+    mul bx                      ; AX multiplies BX to get total (price * quantity = total)
+    mov result, ax              ; Store the total into result
+
+    ; Add to total
+    add total_result, ax
+
+    ; Display subtotal
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    mov ah, 09h
+    lea dx, msg_subtotal
+    int 21h
+
+    push si             ; Save SI value
+    call display_price
+    pop si              ; Load SI value
+
+    inc si
+    pop cx
+    loop display_price_loop
+
+skip_product:
+    inc si                         ; Increment product index
+    pop cx
+    loop display_price_loop
+
+    ; Display total
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, newline
+    int 21h
+    lea dx, msg_total
+    int 21h
+    
+    mov ax, total_result
+    mov result, ax
+    call display_price
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, msg_continue
+    int 21h
+
+    ; Pause before continue
+    mov ah, 01h
+    int 21h
+
+    pop si
+    pop ax
+    pop bx
+    pop dx
+
+    jmp menu_loop
+
 invalid_product:
     mov ah, 09h
     lea dx, msg_invalid_product
+    int 21h
+    mov ah, 01h
     int 21h
     jmp transaction_loop
 
@@ -254,28 +591,36 @@ invalid_quantity:
     mov ah, 09h
     lea dx, msg_invalid_quantity
     int 21h
+    mov ah, 01h
+    int 21h
     jmp transaction_loop
 
-transaction_complete:
-    ; Convert total to string
-    mov ax, [total]
-    lea si, price_string
-    call price_to_string
-
-    ; Display total
+max_quantity_reached:
     mov ah, 09h
-    lea dx, msg_total
+    lea dx, msg_max_quantity
     int 21h
-    lea dx, price_string
+    mov ah, 01h
     int 21h
+    jmp transaction_loop
 
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+option_2:
+    ; Placeholder for Show product
+    jmp menu_loop
+
+option_3:
+    ; Placeholder for Show cashbox
+    jmp menu_loop
+
+option_4:
+    ; restock model
+    jmp restock_proc
+
+exit_program:
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    lea dx, msg_exit
+    int 21h
 
     mov ax, 4C00h
     int 21h
@@ -291,7 +636,7 @@ login_loop:
 
     ; Prompt for username
     mov ah, 09h
-    lea dx, prompt_user
+    lea dx, prompt_username
     int 21h
 
     ; Get username input
@@ -318,7 +663,7 @@ login_loop:
 
     ; Prompt for password
     mov ah, 09h
-    lea dx, prompt_pass
+    lea dx, prompt_password
     int 21h
 
     ; Get password input
@@ -338,9 +683,8 @@ login_loop:
     call compare_strings
     jnz login_failed ; if ZF != 0 (failed), jump
 
-    ; Call success_login_menu procedure
-    call success_login_menu
-    jmp exit
+    ; Login succeed
+    jmp success_login
 
 login_failed:
 
@@ -357,7 +701,7 @@ login_failed:
     je too_many_attempts
 
     mov ah, 09h
-    lea dx, msg_failure
+    lea dx, msg_failure_login
     int 21h
 
     ; Print newline
@@ -369,7 +713,7 @@ login_failed:
 
 too_many_attempts:
     mov ah, 09h
-    lea dx, msg_attempts
+    lea dx, msg_attempts_finished
     int 21h
 
 exit:
@@ -378,194 +722,183 @@ exit:
 
 login endp
 
-success_login_menu proc ;Login Success - Thee Hao Siang
+display_selected_product proc ;Display Product
+    push ax
+    push bx
+    push dx
+    push si
+    push di
 
-clear_buffer:
-    mov si, OFFSET input_buffer  ; Load the starting address of input_buffer into SI
-    mov cx, 20                   ; Load the size of the buffer (50 bytes) into CX
-    mov al, 0                    ; We will fill the buffer with 0 (null)
+    mov ah, 09h 
+    lea dx, newline
+    int 21h
+    lea dx, msg_selected_product
+    int 21h
 
-clear_loop:
-    mov [si], al                 ; Set current byte to 0
-    inc si                       ; Move to the next byte in the buffer
-    loop clear_loop              ; Repeat until CX = 0 (end of buffer)
+    mov bl, product_id          ; Load product_id into BL
+    dec bl                      ; Adjust for 0-based index
+    mov bh, 0                   ; Clear BH
+    mov si, bx                  ; Move BX (product_id value) into SI
+    mov al, product_lengths[si] ; Get the length of the product name
+    mov cl, al                  ; Move length into CL
+    mov ch, 0                   ; Clear high byte of CX
 
-    ; Clear the screen
-    mov ah, 06h  ; scroll up function
-    mov al, 0    ; clear entire screen
-    mov bh, 07h  ; attribute (white on black)
-    mov cx, 0    ; start at row 0, column 0
-    mov dh, 24   ; end at row 24 (bottom of screen)
-    mov dl, 79   ; end at column 79 (right edge of screen)
-    int 10h      ; execute BIOS video interrupt
+    ; Calculate the offset for the selected product name
+    lea si, product_a   ; Load offset address of product_a
+    mov al, bl          ; Load product_id into AL
+    mov ah, 12          ; Length of each product name including null terminator
+    mul ah              ; AX multiplies AH to get actual address of selected product
+    add si, ax          ; Add SI with the actual address
 
-menu_loop:
-    ; Set cursor position to top-left corner
-    mov ah, 02h  ; set cursor position
-    mov bh, 0    ; page number
-    mov dh, 0    ; row
-    mov dl, 0    ; column
-    int 10h
+    mov di, offset current_product
+copy_product_name:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop copy_product_name
 
-    call display_company_colour_name ; company name
+    mov byte ptr [di], '$'  ; Null-terminate the string
 
-    ; Print success message
     mov ah, 09h
-    lea dx, msg_success
+    lea dx, current_product
     int 21h
 
-    ; Print menu
-    mov ah, 09h
-    lea dx, menu
-    int 21h
-
-    ; Prompt for user input
-    mov ah, 09h
-    lea dx, prompt_choice_1
-    int 21h
-
-    ; Get user input
-    mov ah, 01h
-    int 21h
-
-    ; Check user input
-    cmp al, '1'
-    je option_1
-    cmp al, '2'
-    je option_2
-    cmp al, '3'
-    je option_3
-    cmp al, '4'
-    je exit_program
-
-    ; Print newline
+    ; Display current quantity
     mov ah, 09h
     lea dx, newline
     int 21h
-
-    ; If we get here, input was invalid
-    mov ah, 09h
-    lea dx, invalid_input
+    lea dx, msg_current_quantity
     int 21h
 
-    ; Wait for a key press
-    mov ah, 01h
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, [product_qty + bx]
+    add al, '0'
+    mov dl, al
+    mov ah, 02h
     int 21h
 
-    jmp menu_loop
+    mov ah,09h
+    lea dx,newline
+    int 21h
 
-option_1:
-    ; Transaction
-    jmp menu_loop
+    mov ah,09h
+    lea dx,current_stock_msg
+    int 21h
 
-option_2:
-    ; Placeholder for Show product
-    jmp menu_loop
+    ; Update stock after purchase
+    ; Get the quantity the user purchased from product_qty
+    mov al, [product_qty + bx]    ; Load the quantity the user bought into AL
 
-option_3:
-    ; Placeholder for Show cashbox
-    jmp menu_loop
+    ; Get the current stock from product_qty_store
+    mov bl, product_id
+    dec bl                        ; Adjust for 0-based index
+    mov ah, [product_qty_store + bx] ; Load current stock into AH
 
-exit_program:
-    ret
+    sub ah, al                    ; Subtract quantity bought from stock
+    mov [product_qty_store + bx], ah ; Store the updated stock
 
-success_login_menu endp
-
-
-
-price_to_string proc
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-
-    ; AX contains the price in cents
-    mov bx, 100
-    xor dx, dx
-    div bx      ; AX now contains dollars, DX contains cents
-
-    ; Convert dollars to string
-    mov si, offset price_string
-    call number_to_string
-
-    ; Add decimal point
-    mov byte ptr [si], '.'
-    inc si
-
-    ; Convert cents to string
-    mov ax, dx
-    mov cx, 2   ; We want two digits for cents
-    call number_to_string_padded
-
+    mov al, [product_qty_store + bx] ; Load updated stock
+    add al, '0'                      ; Convert to ASCII
+    mov dl, al
+    mov ah, 02h
+    int 21h
+    
+    pop di
     pop si
     pop dx
-    pop cx
     pop bx
     pop ax
     ret
-price_to_string endp
+display_selected_product endp
 
-; Convert number in AX to string at [SI], null-terminated
-number_to_string proc
-    push ax
-    push bx
-    push cx
-    push dx
+display_price proc ;Display Price
+    ; Convert the result to ASCII for display
+    lea si, buffer
+    mov cx, 5       ; Loop 5 times for 5 bytes in buffer (max 5 digits)
+    add si, 4       ; Start from the end of buffer (leave 1 extra $ for end string)
+    mov ax, result  ; Move result to AX
 
-    mov bx, 10
-    xor cx, cx
+    ; Extract and convert each digit
+convert_loop:
+    xor dx, dx          ; Clear DX for division
+    mov bx, 10          ; Base 10 for conversion
+    div bx              ; AX = AX / 10, DX = remainder (last digit)
+    add dl, 30h         ; Convert digit to ASCII
+    mov [si], dl        ; Store the digit in the buffer
+    dec si              ; Move to the next buffer position
+    loop convert_loop
 
-divide_loop:
-    xor dx, dx
-    div bx
-    push dx
-    inc cx
-    test ax, ax
-    jnz divide_loop
+    ; Extract the cents
+    lea si, buffer           ; Points SI to starting address of buffer
+    mov ax, word ptr [si+3]  ; Loads the last two digits into cent_result
+    mov cent_result, ax
 
-store_loop:
-    pop dx
-    add dl, '0'
-    mov [si], dl
+    ; Ensure the buffer is in the correct format (00.00)
+    mov byte ptr [si+3], '.'
+    mov byte ptr [si+4], '$'
+
+    ; Remove leading zeros
+    lea si, buffer          ; Points SI to starting address of buffer
+    mov cx, 3               ; We'll check the first 3 digits (before the decimal point)
+remove_leading_zeros:
+    cmp byte ptr [si], '0'  ; Check for leading '0'
+    jne display_result      ; If found non-zero number, display the price
+    mov byte ptr [si], ' '  ; Replace '0' with space
     inc si
-    loop store_loop
+    loop remove_leading_zeros
 
-    mov byte ptr [si], 0  ; Null terminator
+display_result:
+    ; Display the price
+    mov ah, 09h
+    lea dx, buffer
+    int 21h
 
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    mov ah, 09h
+    lea dx, cent_result
+    int 21h
+
     ret
-number_to_string endp
+display_price endp
 
-; Convert number in AX to string at [SI], padding with leading zeros if necessary
-; CX contains the desired string length
-number_to_string_padded proc
-    push ax
-    push bx
-    push dx
+compare_strings proc ;Compare two strings (using SI and DI (input))
+    push cx ; Save original CX value in stack
+    push dx ; Save original DX value in stack
 
-    mov bx, 10
-    add si, cx   ; Point to the end of the string
-    dec si
+    xor cx, cx ; Initialize character counter to 0
 
-pad_loop:
-    xor dx, dx
-    div bx
-    add dl, '0'
-    mov [si], dl
-    dec si
-    loop pad_loop
+compare_loop:
+    mov dl, [si]    ; Load character from first string
+    cmp dl, [di]    ; Compare with character from second string (input)
+    jne compare_end ; Jump if characters don't match
 
-    pop dx
-    pop bx
-    pop ax
-    ret
-number_to_string_padded endp
+    cmp dl, 0        ; Check if we reached the null terminator
+    je compare_match ; If both strings have the same length, they match
 
+    inc si           ; Move to next character in first string
+    inc di           ; Move to next character in second string
+    loop compare_loop ; Continue comparing characters
 
+compare_match:
+    cmp byte ptr [si], 0 ; Check if first string is at null terminator
+    jne compare_end      ; If not, strings don't match
+    cmp byte ptr [di], 0 ; Check if second string is at null terminator
+    jne compare_end      ; If not, strings don't match
+
+    pop dx     ; Restore original DX value
+    pop cx     ; Restore original CX value
+    xor ax, ax ; Set ZF to 0 for match
+    ret        ; Return ZF 0 (MATCH)
+
+compare_end:
+    pop dx     ; Restore original DX value
+    pop cx     ; Restore original CX value
+    or ax, ax ; Set ZF to 1 for no match
+    ret       ; Return ZF 1 (NO MATCH)
+
+compare_strings endp
 
 display_company_colour_name proc ;Thee Chern Hao
     ; Save registers to preserve their original values
@@ -632,42 +965,646 @@ done:
     ret                  ; Return from the procedure
 display_company_colour_name endp
 
-; COMPARE TWO STRINGS (using SI and DI (input))
-compare_strings proc 
-    push cx ; Save original CX value in stack
-    push dx ; Save original DX value in stack
+clear_screen proc ;Clear Screen
+    ; Set up the registers for clearing the screen
+    mov ah, 06h  ; Function 06h (scroll up)
+    mov al, 0    ; Clear entire screen
+    mov bh, 07h  ; Attribute (white on black)
+    mov cx, 0    ; Start at row 0, column 0
+    mov dh, 24   ; End at row 24 (bottom of screen)
+    mov dl, 79   ; End at column 79 (right edge of screen)
+    int 10h      ; Execute BIOS video interrupt
 
-    xor cx, cx ; Initialize character counter to 0
+    ; Set cursor to top-left corner
+    mov ah, 02h  ; Function 02h (set cursor position)
+    mov bh, 0    ; Page number (usually 0)
+    mov dx, 0    ; Row 0, column 0
+    int 10h      ; Execute BIOS video interrupt
 
-compare_loop:
-    mov dl, [si]    ; Load character from first string
-    cmp dl, [di]    ; Compare with character from second string (input)
-    jne compare_end ; Jump if characters don't match
+    ret
+clear_screen endp
 
-    cmp dl, 0        ; Check if we reached the null terminator
-    je compare_match ; If both strings have the same length, they match
+scroll_screen proc ;Scroll Screen
+    ; Set up the registers for scrolling the screen
+    mov ah, 06h  ; Function 06h (scroll up)
+    mov al, 1    ; Scroll by 1 line
+    mov bh, 07h  ; Attribute (white on black)
+    mov cx, 0    ; Start at row 0, column 0
+    mov dh, 24   ; End at row 24 (bottom of screen)
+    mov dl, 79   ; End at column 79 (right edge of screen)
+    int 10h      ; Execute BIOS video interrupt
 
-    inc si           ; Move to next character in first string
-    inc di           ; Move to next character in second string
-    loop compare_loop ; Continue comparing characters
+    ; Set cursor to top-left corner
+    mov ah, 02h  ; Function 02h (set cursor position)
+    mov bh, 0    ; Page number (usually 0)
+    mov dx, 0    ; Row 0, column 0
+    int 10h      ; Execute BIOS video interrupt
 
-compare_match:
-    cmp byte ptr [si], 0 ; Check if first string is at null terminator
-    jne compare_end      ; If not, strings don't match
-    cmp byte ptr [di], 0 ; Check if second string is at null terminator
-    jne compare_end      ; If not, strings don't match
+    ret
+scroll_screen endp
 
-    pop dx     ; Restore original DX value
-    pop cx     ; Restore original CX value
-    xor ax, ax ; Set ZF to 0 for match
-    ret        ; Return ZF 0 (MATCH)
+;--------------------------------------------Restock------------------------------------
+nextLine proc
+    mov ah,02h
+    mov dl,10d
+    int 21h
+    mov ah,02h
+    mov dl,13
+    int 21h
+    ret
+nextLine endp
 
-compare_end:
-    pop dx     ; Restore original DX value
-    pop cx     ; Restore original CX value
-    or ax, ax ; Set ZF to 1 for no match
-    ret       ; Return ZF 1 (NO MATCH)
+printString proc
+    mov ah, 09h         
+    lea dx, [si]         
+    int 21h
+    xor si,si           
+    ret
+printString endp
 
-compare_strings endp
+captureChar proc
+    mov ah, 01h   ; Set DOS function to read a single character with echo
+    int 21h       ; Interrupt 21h to read from keyboard
+    ret 
+captureChar endp
+
+
+PrintQty proc
+
+    mov al, product_qty_store[si]  ; Load the byte at ps_inStockQuantity[si] into AL
+    cmp al, 10           ; Compare with 10
+    jl PrintSingleDigit   ; Jump to PrintSingleDigit if less than 10
+    xor ah,ah
+    mov bl, 10d           ; Prepare for division
+    div bl               ; AL = quotient (tens digit), AH = remainder (ones digit)
+
+    ; Print tens digit
+    mov dl, al           ; Load tens digit into DL
+    add dl, '0'          ; Convert to ASCII
+    mov restock_x,ah
+    mov ah, 02h          ; Function 02h - Print character
+    int 21h
+
+    ; Print ones digit
+    mov dl, restock_x          ; Load ones digit into DL
+    add dl, '0'          ; Convert to ASCII
+    mov ah, 02h          ; Function 02h - Print character
+    int 21h
+    
+    mov bl,0
+    mov restock_x,bl  ;initialize x to 0
+    jmp PrintQtyDone      ; Jump to the end
+
+PrintSingleDigit:
+    add al, '0'          ; Convert single digit to ASCII
+    mov ah, 0Eh          ; Function 0Eh - Print character
+    int 10h
+
+PrintQtyDone:
+    ret
+PrintQty endp
+
+
+
+restock_display proc
+    call clear_screen
+
+    lea si,restock_heading
+    call printString
+    call nextLine
+
+    lea si,product_1
+    call printString
+    mov si,0
+    call PrintQty
+    call nextLine
+
+    lea si,product_2
+    call printString
+    mov si,1
+    call PrintQty
+    call nextLine
+    
+    lea si,product_3
+    call printString
+    mov si,2
+    call PrintQty
+    call nextLine
+
+    lea si,product_4
+    call printString
+    mov si,3
+    call PrintQty
+    call nextLine
+
+    lea si,restock_Exit
+    call printString
+    call nextLine
+    ret
+
+restock_display endp
+
+captureTwoNum proc
+
+capturefirstdigit:
+    lea si,restock_inputMsg_msg
+    call printString
+	mov ah, 01h
+	int 21h
+    mov restock_x,al ;x=first digit
+    cmp al,'x'
+    je return
+    cmp al,39h ;compare first digit to 9
+    jg errormsg ;jump if firstnum>=2
+    cmp al,30h ;compare first digit to 0
+    jl errormsg
+
+    mov ah, 01h
+	int 21h
+    mov restock_y,al ;y=second digit
+    cmp al,39h ;compare 2nd digit to 9
+    jg errormsg
+    cmp al,30h
+    jl errormsg
+    jmp restock_calc
+
+errormsg:
+    call nextLine
+    lea si,input_firstdigit ;first digit cannot more than 1!
+    call printString
+    call Pause 
+    call clear_screen
+    call restock_display
+    call nextLine
+    jmp capturefirstdigit
+
+  
+restock_calc:
+    xor bx,bx
+    mov bl,10
+    sub restock_x,30h;substract it from ASCII
+    sub restock_y,30h;substract from ASCII
+    mov al,restock_x
+    mul bl
+
+    add al,restock_y
+    mov bx,ax ;two digits store result into bx
+    call nextLine
+    jmp restock_sure
+
+restock_sure: 
+    lea si,restock_confirm_msg
+    call printString
+    call captureChar
+    cmp al,'y'
+    je return
+    jne restock_no
+
+restock_no:
+    cmp al,'n'
+    je restock_cancel
+    jne errormsg2
+return:
+    ret
+
+errormsg2:
+    call nextLine
+    lea si,error ;invalid input !
+    call printString
+    call nextLine
+    call Pause
+    call clear_screen 
+    jmp restock_sure
+
+restock_cancel: 
+    call nextLine
+    lea si,restock_cancel_msg ;restock canceled
+    call printString
+    call nextLine
+    call Pause
+    call main
+
+
+captureTwoNum endp
+
+
+Pause proc
+    mov ah,09h
+    lea dx,Pause_Msg
+    int 21h
+    mov ah,07h
+    int 21h
+    ret
+
+Pause endp    
+
+
+warning proc
+    call nextLine
+    lea si,error
+    call Pause
+    call clear_screen
+    ret
+warning endp    
+    
+restock_proc proc
+    call clear_screen
+restock_Screen:
+    
+    lea si,restock_heading
+    call nextLine
+    call restock_display
+
+    call nextLine
+    lea si,Restock_Msg
+    call printString
+    call captureChar
+    mov restock_x ,al ;save in restock_x
+    cmp al,'x'      ;compare input is x or not
+    je restock_end ;if yes then jump to restock_end
+    cmp al,31h  ; compare input is more then 1 in ASCII
+    jl warningMsg ;if less then 1 then jump to error msg
+    cmp al,34h ; compare input is more then 4 in ASCII
+    jg warningMsg ; if less then 4 then jump to error msg
+    jmp select_restock
+
+restock_end:
+    call menu_loop    
+warningMsg:
+    call warning
+    jmp restock_screen
+
+warning1:
+    call warningMsg
+    jmp restock_screen
+
+restockA:
+    mov di,0
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen
+
+restockB:
+    mov di,1
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen    
+
+restockC:
+    mov di,2
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen
+
+restockD:
+    mov di,3
+    cmp product_qty_store[di],20
+    jg warning1
+    call nextLine
+    call captureTwoNum
+    add product_qty_store[di],bl
+
+    call nextLine
+    lea si,restock_success_msg
+    call printString
+    call Pause
+    call clear_screen
+
+    jmp restock_Screen
+restockA1:
+    jmp restockA
+restockB1:
+    jmp restockB
+restockC1:
+    jmp restockC
+restockD1:
+    jmp restockD
+
+select_restock:
+    cmp al, restock_A
+    je restockA1
+    cmp al, restock_B
+    je restockB1
+    cmp al, restock_C
+    je restockC1
+    cmp al, restock_D
+    je restockD1
+
+ret 
+restock_proc endp    
+
+confirm_purchase proc
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ; Ask user for confirmation to buy
+    mov ah, 09h
+    lea dx, msg_confirm_purchase ; "Do you want to purchase? (Y/N): "
+    int 21h
+
+    ; Get the user input
+    mov ah, 01h                 ; DOS input function
+    int 21h
+    cmp al, 'Y'                 ; Compare input to 'Y'
+    je purchase_confirmed       ; If 'Y', jump to confirm purchase
+    cmp al, 'y'        
+    je purchase_confirmed
+    cmp al, 'n'                 ; Compare input to 'N'
+    je purchase_cancelled        ; If 'N', jump to cancel purchase
+    cmp al, 'N'                 
+    je purchase_cancelled        
+
+    ; If input is invalid, ask again (simple loop)
+    jmp confirm_purchase         ; Loop back if neither Y nor N
+
+purchase_confirmed:
+    mov confirmation_flag, 1
+    call reduce_stock
+    ret
+
+purchase_cancelled:
+    mov confirmation_flag, 0
+; Set all product_qty values to 0
+    mov cx, 4                    ; Number of products (assuming 4 products)
+    mov si, offset product_qty    ; Load the offset of product_qty array
+
+clear_qty_loop:
+    mov byte ptr [si], 0          ; Set the current product quantity to 0
+    inc si                        ; Move to the next product quantity
+    loop clear_qty_loop           ; Repeat until all quantities are cleared
+
+    ret                          ; Return from the procedure
+    
+confirm_purchase endp
+
+reduce_stock proc
+    push ax
+    push bx
+    push dx
+
+    ; Parameters: product_id in BL, quantity purchased in AL
+
+    ; Load current stock from product_qty_store
+    mov bl, product_id
+    dec bl                       ; Adjust for 0-based index
+    mov ah, [product_qty_store + bx] ; Load current stock into AH
+
+    ; Check if there is enough stock
+    cmp ah, al                   ; Compare stock (AH) with quantity bought (AL)
+    jb insufficient_stock         ; Jump if stock is less than the quantity bought
+
+    ; Subtract quantity bought from stock
+    sub ah, al
+    mov [product_qty_store + bx], ah ; Store the updated stock
+
+    jmp done_reduce_stock
+
+insufficient_stock:
+    ; Display 0 to indicate no stock available
+     ; Set stock to 0 if insufficient
+    mov byte ptr [product_qty_store + bx], 0
+
+    mov ah, 09h
+    lea dx, msg_insufficient_stock
+    int 21h
+
+done_reduce_stock:
+    pop dx
+    pop bx
+    pop ax
+    ret
+reduce_stock endp
+
+;---------------------------------------------receipt------------------------------------
+
+
+display_receipt_heading proc
+    call clear_screen
+    call display_company_colour_name
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    mov ah,09h
+    lea si,receipt_start
+    int 21h
+
+
+display_receipt_heading endp
+
+Ask_Print_Receipt proc
+   
+testing:
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    lea si,print
+    call printString
+    
+    lea si, enter_choice
+    call printString 
+    call captureChar
+    
+    cmp al, 'a'
+    je PrintReceipt
+    cmp al, 'b'
+    je NoPrint
+    
+    lea si,error
+    call printString
+    jmp testing
+
+    
+
+PrintReceipt:
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    call Enter_to_process  ; Call printing procedure
+    ret
+
+NoPrint:
+    ; Display the company name and skip the print process
+    ; Print newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+
+    ret
+
+Ask_Print_Receipt endp
+
+
+Enter_to_process proc
+    mov ah, 09h
+    lea dx, printing
+    int 21h
+    mov ah, 07h
+    int 21h
+    ret
+Enter_to_process endp
+
+display_receipt_product proc ;Display Product
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+
+    mov ah, 09h 
+    lea dx, newline
+    int 21h ;selected product
+
+    mov bl, product_id          ; Load product_id into BL
+    dec bl                      ; Adjust for 0-based index
+    mov bh, 0                   ; Clear BH
+    mov si, bx                  ; Move BX (product_id value) into SI
+    mov al, product_lengths[si] ; Get the length of the product name
+    mov cl, al                  ; Move length into CL
+    mov ch, 0                   ; Clear high byte of CX
+
+    ; Calculate the offset for the selected product name
+    lea si, product_a   ; Load offset address of product_a
+    mov al, bl          ; Load product_id into AL
+    mov ah, 12          ; Length of each product name including null terminator
+    mul ah              ; AX multiplies AH to get actual address of selected product
+    add si, ax          ; Add SI with the actual address
+
+    mov di, offset current_product
+receipt_product_name:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop receipt_product_name
+
+    mov byte ptr [di], '$'  ; Null-terminate the string
+
+    mov ah, 09h
+    lea dx, current_product
+    int 21h
+
+
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+
+    ; Add space padding
+    lea dx, space_padding
+    int 21h
+    ; Add space padding
+    lea dx, space_padding
+    int 21h; Add space padding
+    lea dx, space_padding
+    int 21h
+
+    mov al, [product_qty + bx]
+    add al, '0'
+    mov dl, al
+
+
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+display_receipt_product endp
+
+display_receipt_price proc ;Display Price
+    ; Convert the result to ASCII for display
+    lea si, buffer
+    mov cx, 5       ; Loop 5 times for 5 bytes in buffer (max 5 digits)
+    add si, 4       ; Start from the end of buffer (leave 1 extra $ for end string)
+    mov ax, result  ; Move result to AX
+
+    ; Extract and convert each digit
+convert_loop1:
+    xor dx, dx          ; Clear DX for division
+    mov bx, 10          ; Base 10 for conversion
+    div bx              ; AX = AX / 10, DX = remainder (last digit)
+    add dl, 30h         ; Convert digit to ASCII
+    mov [si], dl        ; Store the digit in the buffer
+    dec si              ; Move to the next buffer position
+    loop convert_loop1
+
+    ; Extract the cents
+    lea si, buffer           ; Points SI to starting address of buffer
+    mov ax, word ptr [si+3]  ; Loads the last two digits into cent_result
+    mov cent_result, ax
+
+    ; Ensure the buffer is in the correct format (00.00)
+    mov byte ptr [si+3], '.'
+    mov byte ptr [si+4], '$'
+
+    ; Remove leading zeros
+    lea si, buffer          ; Points SI to starting address of buffer
+    mov cx, 3               ; We'll check the first 3 digits (before the decimal point)
+remove_leading_zeros1:
+    cmp byte ptr [si], '0'  ; Check for leading '0'
+    jne display_receipt_result      ; If found non-zero number, display the price
+    mov byte ptr [si], ' '  ; Replace '0' with space
+    inc si
+    loop remove_leading_zeros1
+
+display_receipt_result:
+    ; Display the price
+    mov ah, 09h
+    lea dx, buffer
+    int 21h
+
+    mov ah, 09h
+    lea dx, cent_result
+    int 21h
+
+    ret
+display_receipt_price endp
+
+add_spaces proc
+    push cx
+    mov ah, 02h               ; DOS function to display characters
+    mov dl, ' '               ; Character to display (space)
+add_space_loop:
+    int 21h                   ; Display space
+    loop add_space_loop
+    pop cx
+    ret
+add_spaces endp
+
+
 
 end main
