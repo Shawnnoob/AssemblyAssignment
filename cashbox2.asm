@@ -144,11 +144,12 @@
 
     ;Message for cashbox
     cashbox_header  db '-------------------------', 0Dh, 0Ah
-                    db '     Cashbox Summary     ', 0Dh, 0Ah, '$'
-    cashbox_divider db '-------------------------', 0Dh, 0Ah, '$'
-    cashbox_total_msg db 'Cashbox Total: RM', '$'
-    msg_continue_1    db  "Press enter to continue...", 0
-    total_buffer     db  6 dup(0)  ; Buffer to hold formatted total (5 digits + decimal point)
+                    db '     Cashbox Summary     ', 0Dh, 0Ah
+                    db '-------------------------', 0Dh, 0Ah, '$'
+    cashbox_total_msg      db 'Cashbox Total: RM', '$'
+    msg_continue_1         db  "Press enter to continue...", 0
+    formatted_total_buffer db 6 dup(0)         ; Reserve 6 bytes for formatted price (e.g. 123.45)
+
 
 
 
@@ -1209,109 +1210,107 @@ ShowCashBox proc
     ; Clear screen
     call clear_screen
 
-    ; Display header and divider
-    lea si, cashbox_header
-    call printString
-    lea si, cashbox_divider
-    call printString
-    call nextLine
+    ; Display header
+    lea dx, cashbox_header
+    mov ah, 09h
+    int 21h
+
+    ; Newline after the header
+    call newline_1
 
     ; Display "Cashbox Total: RM "
-    lea si, cashbox_total_msg
-    call printString
+    lea dx, cashbox_total_msg
+    mov ah, 09h
+    int 21h
 
-    ; Load cashbox_total into AX
-    mov ax, [cashbox_total]
+    ; Display the formatted cashbox total
+    call display_price_cashbox_total
 
-    ; Call the function to print cashbox total in RM.xx format
-    call printFormattedCashboxTotal
-    call nextLine
+    ; Newline after total
+    call newline_1
 
     ; Prompt user to press Enter and wait for input
-    lea si, msg_continue
-    call printString
-    mov ah, 01h
+    lea dx, msg_continue_1
+    mov ah, 09h
     int 21h
 
-    jmp menu_loop
+    mov ah, 01h                    ; Wait for key press (get a single character input)
+    int 21h
+
+    ; Clear input buffer
+    mov ah, 0Ch                    ; Clear input buffer and wait for new input
+    mov al, 0                      ; Set AL register to 0
+    int 21h
+
+    ; Back to Menu
+    call menu_loop
 ShowCashBox endp
 
+display_price_cashbox_total proc
+    ; Load total from cashbox_total
+    mov ax, [cashbox_total]        ; Load value of cashbox total which is stored in cents
 
-; printFormattedCashboxTotal procedure - formats and prints cashbox total as RM.xx
-printFormattedCashboxTotal proc
-    push ax
-    push bx
-    push dx
-    push cx
+    ; Check if total is zero
+    cmp ax, 0                      ;Compare ax with 0
+    jne not_zero                   ; Jump to not_zero if the value is not zero
 
-    ; Load cashbox_total value into AX
-    mov ax, [cashbox_total]
+    ; If total is zero, display "0.00"
+    lea si, formatted_total_buffer ; Load the address of formatted_total_buffer into SI
+    mov byte ptr [si], '0'         ; Store '0' at the first position
+    mov byte ptr [si+1], '.'       ; Store '.' at the second position
+    mov byte ptr [si+2], '0'       ; Store '0' at the third position
+    mov byte ptr [si+3], '0'       ; Store '0' at the fourth position
+    mov byte ptr [si+4], '$'       ; Store '.' at the fifth position (currency symbol)
+    jmp display_result_1           ; Jump to the display reult routine
 
-    ; Separate RM (integer part) and cents (decimal part)
-    mov bx, 100         ; Divisor for separating RM and cents
-    xor dx, dx          ; Clear DX
-    div bx              ; AX = RM (integer part), DX = cents (remainder)
+; Handle non-zero total
+not_zero:
+    lea si, formatted_total_buffer ; Point SI to formatted_total_buffer
+    add si, 5                      ; Start at the last position, , Write digits from right to left(start at end of buffer)
 
-    ; Print RM (integer part)
-    mov cx, ax          ; Store RM in CX
-    call printNumber    ; Print RM
+    ; Extract and convert digits
+    mov cx, 5                      ; We need to extract 5 digits (RMxxx.xx), CX used as counter loop run 5 times, each loop handle one digit
+    mov bx, 10                     ; Divisor for digit extraction, BX used as divisor to divide total amount to extract individual digits
 
-    ; Print decimal point
-    mov dl, '.'
-    mov ah, 02h
-    int 21h
+; Extract digits
+extract_digits:
+    xor dx, dx                     ; Clear DX for division, XOR clear DX register, DX holds remainder
+    div bx                         ; AX = AX / 10, DX = remainder (last digit), Divide value in AX by BX(10), Quotient store in AX, Remainder store in DX
+    add dl, '0'                    ; Convert remainder to ASCII
+    mov [si], dl                   ; Store ASCII digit in the buffer
+    dec si                         ; Move back to the previous position in the buffer, Decrease value of SI by 1, Move pointer to previous position in buffer
+    loop extract_digits            ; Continue until all 5 digits are extracted, Decrements CX by 1, Continue loop as long as CX is not zero, CX previously set to 5
 
-    ; Print cents (DX)
-    mov ax, dx          ; DX contains cents
-    cmp ax, 10          ; Check if cents are less than 10
-    jae .print_cents
-    ; Print leading zero for cents
-    mov dl, '0'
-    mov ah, 02h
-    int 21h
+    ; Place decimal point
+    inc si                         ; Move back to the hundreds position
+    ;mov al, [si]                   ; Save the hundreds digit
+    ;mov bl, [si+1]                 ; Save the ten digits
+    ;mov [si+1], al                 ; Move hundreds to tens positiom
+    ;mov [si+2], bl                 ; Move original tens to ones position
+    mov byte ptr [si], '.'         ; Insert the decimal point 
 
-.print_cents:
-    mov cx, ax          ; Store cents in CX
-    call printNumber    ; Print cents
+    ; Check for leading zeros, if leftmost is zero replace with space
+    dec si                         ; Move to the leftmost digit
+    cmp byte ptr [si], '0'         ; Check if it's a zero
+    jne display_result_1           ; If it's not a zero, continue
+    mov byte ptr [si], ' '         ; If it is a zero, replace with a space
 
-    pop cx
-    pop dx
-    pop bx
-    pop ax
+; Display formatted result
+display_result_1:
+    mov ah, 09h
+    lea dx, formatted_total_buffer ; Load the address of the formatted result
+    int 21h                        ; Display the formatted result
+
     ret
-printFormattedCashboxTotal endp
+display_price_cashbox_total endp
 
-
-; printNumber procedure - prints a number stored in CX
-printNumber proc
-    ; Prints the number in CX
-    push ax
-    push bx
-    push dx
-
-    mov ax, cx
-    mov bx, 10
-    xor cx, cx  ; digit counter
-
-.divide_loop:
-    xor dx, dx
-    div bx
-    push dx     ; remainder (digit)
-    inc cx
-    test ax, ax
-    jnz .divide_loop
-
-.print_loop:
-    pop dx
-    add dl, '0'
+newline_1 proc
     mov ah, 02h
+    mov al, 0dh
     int 21h
-    loop .print_loop
-
-    pop dx
-    pop bx
-    pop ax
+    mov dl, 0Ah
+    int 21h
     ret
-printNumber endp
+newline_1 endp
 
 end main
