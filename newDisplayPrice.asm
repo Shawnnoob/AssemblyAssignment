@@ -17,8 +17,7 @@
     total_int dw 0              ; Store total RM
     total_dec dw 0              ; Store total cents
 
-    buffer_int db 4 dup('$')    ; Buffer for displaying RM
-    buffer_dec db 4 dup('$')    ; Buffer for displaying cents
+    buffer db 7 dup('$')          ; Buffer for displaying
 
     msg_product db 'Product: $'
     msg_subtotal db 'Subtotal: RM$'
@@ -71,6 +70,7 @@ product_loop:
     add total_dec, ax
     
     ; Extract overflow in cents result
+    xor dx, dx                  ; Clear DX to save remainder
     mov ax, result_dec          ; Load cents into AX
     mov bx, 100                 ; Move BX to 100 for division
     div bx                      ; AX = AX / BX, remainder goes to DX
@@ -100,11 +100,12 @@ product_loop:
     lea dx, newline
     int 21h
 
-    add si, 1   ; Move to next product (2 bytes for word)
+    add si, 1   ; Move to next product
     pop cx      ; Restore loop counter
     loop product_loop
 
     ; Extract overflow in cents result for total
+    xor dx, dx                  ; Clear DX to save remainder
     mov ax, total_dec           ; Load cents into AX
     mov bx, 100                 ; Move BX to 100 for division
     div bx                      ; AX = AX / BX, remainder goes to DX
@@ -122,10 +123,10 @@ product_loop:
 
     ; Move both totals into result
     mov ax, total_int
-    mov result_int, ax
-    mov ax, total_dec
-    mov result_dec, ax
-    mov ax, 0       ; Clear AX
+    mov result_int, ax  ; Store total RM into result_int for display
+    mov ax, total_dec   
+    mov result_dec, ax  ; Store total cents into result_dec for display
+    mov ax, 0           ; Clear AX
 
     ; Display total
     mov ah, 09h
@@ -141,9 +142,9 @@ main endp
 
 DisplayPrice proc ; Convert the result to ASCII for display
     ; Convert for RM
-    lea si, buffer_int
+    lea si, buffer
     mov cx, 3           ; Loop 3 times for 3 bytes in buffer (max 3 digits)
-    add si, 2           ; Start from the end of buffer (leave 1 extra $ for end string)
+    add si, 2           ; Start from the end of buffer before decimal
     mov ax, result_int  ; Move result to AX
 
     ; Extract and convert each digit
@@ -157,7 +158,7 @@ convert_loop_int:
     loop convert_loop_int
 
     ; Remove leading zeros for RM
-    lea si, buffer_int      ; Points SI to starting address of buffer
+    lea si, buffer          ; Points SI to starting address of buffer
     mov cx, 3               ; We'll check the first 3 digits (before the decimal point / end string)
 remove_leading_zeros:
     cmp byte ptr [si], '0'  ; Check for leading '0'
@@ -168,10 +169,10 @@ remove_leading_zeros:
 
 convert_cents:
     ; Convert for cents
-    lea si, buffer_dec
-    mov byte ptr [si], '.'   ; Put decimal point at the 1st byte
+    lea si, buffer
+    mov byte ptr [si+3], '.'   ; Put decimal point at the 4th byte
     mov cx, 2           ; Loop 2 times for 2 bytes in buffer (max 2 digits)
-    add si, 2           ; Start from the end of buffer (leave 1 extra $ for end string)
+    add si, 5           ; Start from the end of buffer before '$'(leave 1 extra $ for end string)
     mov ax, result_dec  ; Move result to AX
 
     ; Extract and convert each digit
@@ -186,9 +187,7 @@ convert_loop_dec:
 
     ; Display result
     mov ah, 09h
-    lea dx, buffer_int
-    int 21h
-    lea dx, buffer_dec
+    lea dx, buffer
     int 21h
 
     ret
