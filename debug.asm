@@ -16,8 +16,8 @@
                  db "|         Products           | Price(RM) |", 0dh, 0ah
                  db "|----------------------------|-----------|", 0dh, 0ah
                  db "| 1. Tissue                  |    1.20   |", 0dh, 0ah
-                 db "| 2. Toothpaste              |   12.20   |", 0dh, 0ah
-                 db "| 3. Body Wash               |   15.90   |", 0dh, 0ah
+                 db "| 2. Toothpaste              |   13.20   |", 0dh, 0ah
+                 db "| 3. Body Wash               |   17.90   |", 0dh, 0ah
                  db "| 4. Cotton Buds             |    1.00   |", 0dh, 0ah
                  db "------------------------------------------", '$'
 
@@ -38,17 +38,25 @@
 
     product_lengths db 11, 11, 11, 11     ; Lengths of each product name
     product_qty db 0, 0, 0, 0             ; Chosen quantity for each product
-    preset_price dw 120, 1220, 1590, 100  ; Product price in cents
 
     product_id db ?                 ; Buffer to store current product ID
     current_product db 20 dup('$')  ; Buffer to store current product name
     quantity db ?                   ; Buffer to store quantity user inputs
 
-    result dw ?                 ; Variable to store the result of transaction
-    cent_result dw ' ', '$'     ; Variable to store the result for cent
-    total_result dw 0           ; Variable to store the total price
-    buffer db 6 dup('$')        ; Buffer to hold the ASCII representation of the transaction result
+    ; Variable for calculations
+    preset_price_int dw 1, 13, 17, 1    ; Price in RM
+    preset_price_dec dw 20, 20, 90, 00  ; Price in cents
 
+    result_int dw ?             ; Variable to store RM result
+    result_dec dw ?             ; Variable to store cents result
+    result_overflow dw ?        ; Variable to store overflow from cents
+
+    total_int dw 0              ; Store total RM
+    total_dec dw 0              ; Store total cents
+
+    buffer db 7 dup('$')          ; Buffer for displaying
+
+    ;Prompts and messages
     prompt_username db 'Enter username: $'
     prompt_password db 'Enter password: $'
     msg_success_login db 'Login successful! $'
@@ -359,9 +367,6 @@ handle_cancellation:
     ; Optionally, return to the main menu or another process
     jmp menu_loop                 ; Jump back to the main menu or another process 
 
-jmp_to_display_total:
-    jmp to_display_total
-
 transaction_loop_jmp:
     jmp transaction_loop
 
@@ -402,11 +407,10 @@ display_receipt_loop:
     add al, 1                     ; Add 1 to AL since display_selected_product function decrements product_id
     mov product_id, al            ; Load AL (with SI value) into product_id
     sub al, 1                     ; Sub 1 from AL
-    
 
     mov bl, product_qty[si]        ; Load quantity to BL
     cmp bl, 0                      ; Compare product_qty with 0
-    je skip_product1                ; If qty is 0, skip to the next product
+    je skip_product1               ; If qty is 0, skip to the next product
 
     call display_receipt_product ; Display product name and quantity
 
@@ -424,32 +428,63 @@ display_receipt_loop:
     lea dx, space_padding
     int 21h
     
-    ; Calculate subtotal
-    shl si, 1                   ; Shift SI one bit left (multiply 2)
-    mov ax, preset_price[si]    ; Load price to AL. (We multiply since preset_price is word, hence 2 bytes)
-    shr si, 1                   ; Shift SI one bit right (divide 2, return to original)
-    mov bl, product_qty[si]     ; Load quantity to BL
-    xor bh, bh                  ; Clear BH
-    mul bx                      ; AX multiplies BX to get total (price * quantity = total)
-    mov result, ax              ; Store the total into result
+    ; NEW CALCULATIONS FOR SUBTOTAL
+    ; Calculate subtotal for RM
+    shl si, 1                       ; Shift SI one bit left (multiply 2)
+    mov ax, preset_price_int[si]    ; Load price to AL. (We multiply since preset_price is word, hence 2 bytes)
+    shr si, 1                       ; Shift SI one bit right (divide 2, return to original)
+    mov bl, product_qty[si]         ; Load quantity to BL
+    xor bh, bh                      ; Clear BH
+    mul bx                          ; AX multiplies BX to get total (price * quantity = total)
+    mov result_int, ax              ; Store the total into result
 
-    ; Add to total
-    add total_result, ax
+    ; Add to total for RM
+    add total_int, ax
 
+    ; Calculate subtotal for cents
+    shl si, 1
+    mov ax, preset_price_dec[si]
+    shr si, 1
+    mov bl, product_qty[si]
+    xor bh, bh
+    mul bx
+    mov result_dec, ax
+
+    ; Add to total for cents
+    add total_dec, ax
+    
+    ; Extract overflow in cents result
+    xor dx, dx                  ; Clear DX to save remainder
+    mov ax, result_dec          ; Load cents into AX
+    mov bx, 100                 ; Move BX to 100 for division
+    div bx                      ; AX = AX / BX, remainder goes to DX
+    mov result_overflow, ax     ; Move AX (overflow) to result_overflow
+    mov result_dec, dx          ; Move DX (remainder (cents)) to result_dec
+
+    ; Add the overflow to RM
+    mov ax, result_int          ; Load RM into AX
+    mov bx, result_overflow     ; Load overflow into BX
+    add ax, bx                  ; AX = AX + BX (overflow)
+    mov result_int, ax          ; Store result back into result_int
+    mov bx, 0                   ; Set BX to 0
+    mov ax, 0                   ; Set AX to 0
+    mov result_overflow, ax     ; Clear result_overflow to 0
 
     push si             ; Save SI value
     call display_price
     pop si              ; Load SI value
 
-    inc si
-    pop cx
-    loop display_receipt_loop
-
 skip_product1:
     inc si                         ; Increment product index
     pop cx
-    loop display_receipt_loop
+    dec cx
+    jne display_receipt_loop_jmp
+    jmp display_total
+    
+display_receipt_loop_jmp:
+    jmp display_receipt_loop
 
+display_total:
     mov ah, 09h
     lea dx, newline
     int 21h 
@@ -457,13 +492,36 @@ skip_product1:
     int 21h
     lea dx,newline
     int 21h
+
     ; Display total
     mov ah, 09h
     lea dx, wkz_subTotal
     int 21h
    
-    mov ax, total_result
-    mov result, ax
+    ; Extract overflow in cents result for total
+    xor dx, dx                  ; Clear DX to save remainder
+    mov ax, total_dec           ; Load cents into AX
+    mov bx, 100                 ; Move BX to 100 for division
+    div bx                      ; AX = AX / BX, remainder goes to DX
+    mov result_overflow, ax     ; Move AX (overflow) to result_overflow
+    mov total_dec, dx           ; Move DX (remainder (cents)) to total_dec
+
+    ; Add the overflow to RM
+    mov ax, total_int           ; Load RM into AX
+    mov bx, result_overflow     ; Load overflow into BX
+    add ax, bx                  ; AX = AX + BX (overflow)
+    mov total_int, ax           ; Store result back into total_int
+    mov bx, 0                   ; Set BX to 0
+    mov ax, 0                   ; Set AX to 0
+    mov result_overflow, ax     ; Clear result_overflow to 0
+
+    ; Move both totals into result
+    mov ax, total_int
+    mov result_int, ax  ; Store total RM into result_int for display
+    mov ax, total_dec   
+    mov result_dec, ax  ; Store total cents into result_dec for display
+    mov ax, 0           ; Clear AX
+
     call display_price
 
     mov ah,09h
@@ -477,95 +535,6 @@ skip_product1:
     int 21h
     
     call Ask_Print_Receipt
-
-    ; Pause before continue
-    mov ah, 01h
-    int 21h
-
-    pop si
-    pop ax
-    pop bx
-    pop dx
-
-    jmp menu_loop
-
-
-to_display_total:
-    call clear_screen
-    call display_company_colour_name
-    ;Display product name, qty and price
-    push si
-    push ax
-    push bx
-    push dx
-
-    mov cx, 4   ; Loop 4 times for 4 products
-    mov si, 0   ; Move SI to 0 for index
-display_price_loop:
-    push cx
-    mov ax, si                    ; Move SI into AX
-    xor ah, ah                    ; Clear AH
-    add al, 1                     ; Add 1 to AL since display_selected_product function decrements product_id
-    mov product_id, al            ; Load AL (with SI value) into product_id
-    sub al, 1                     ; Sub 1 from AL
-    
-
-    mov bl, product_qty[si]        ; Load quantity to BL
-    cmp bl, 0                      ; Compare product_qty with 0
-    je skip_product                ; If qty is 0, skip to the next product
-
-    call display_selected_product ; Display product name and quantity
-    ; Calculate subtotal
-    shl si, 1                   ; Shift SI one bit left (multiply 2)
-    mov ax, preset_price[si]    ; Load price to AL. (We multiply since preset_price is word, hence 2 bytes)
-    shr si, 1                   ; Shift SI one bit right (divide 2, return to original)
-    mov bl, product_qty[si]     ; Load quantity to BL
-    xor bh, bh                  ; Clear BH
-    mul bx                      ; AX multiplies BX to get total (price * quantity = total)
-    mov result, ax              ; Store the total into result
-
-    ; Add to total
-    add total_result, ax
-
-    ; Display subtotal
-    mov ah, 09h
-    lea dx, newline
-    int 21h
-    mov ah, 09h
-    lea dx, msg_subtotal
-    int 21h
-
-    push si             ; Save SI value
-    call display_price
-    pop si              ; Load SI value
-
-    inc si
-    pop cx
-    loop display_price_loop
-
-skip_product:
-    inc si                         ; Increment product index
-    pop cx
-    loop display_price_loop
-
-    ; Display total
-    mov ah, 09h
-    lea dx, newline
-    int 21h
-    lea dx, newline
-    int 21h
-    lea dx, msg_total
-    int 21h
-    
-    mov ax, total_result
-    mov result, ax
-    call display_price
-
-    mov ah, 09h
-    lea dx, newline
-    int 21h
-    lea dx, msg_continue
-    int 21h
 
     ; Pause before continue
     mov ah, 01h
@@ -846,50 +815,54 @@ done1:
     ret
 display_selected_product endp
 
-display_price proc ;Display Price
-    ; Convert the result to ASCII for display
+display_price proc ;Convert results into ASCII to display
+    ; Convert for RM
     lea si, buffer
-    mov cx, 5       ; Loop 5 times for 5 bytes in buffer (max 5 digits)
-    add si, 4       ; Start from the end of buffer (leave 1 extra $ for end string)
-    mov ax, result  ; Move result to AX
+    mov cx, 3           ; Loop 3 times for 3 bytes in buffer (max 3 digits)
+    add si, 2           ; Start from the end of buffer before decimal
+    mov ax, result_int  ; Move result to AX
 
     ; Extract and convert each digit
-convert_loop:
-    xor dx, dx          ; Clear DX for division
-    mov bx, 10          ; Base 10 for conversion
-    div bx              ; AX = AX / 10, DX = remainder (last digit)
-    add dl, 30h         ; Convert digit to ASCII
-    mov [si], dl        ; Store the digit in the buffer
-    dec si              ; Move to the next buffer position
-    loop convert_loop
+convert_loop_int:
+    xor dx, dx      ; Clear DX for division
+    mov bx, 10      ; Base 10 for conversion
+    div bx          ; AX = AX / 10, DX = remainder (last digit)
+    add dl, 30h     ; Convert digit to ASCII
+    mov [si], dl    ; Store the digit in the buffer
+    dec si          ; Move to the next buffer position
+    loop convert_loop_int
 
-    ; Extract the cents
-    lea si, buffer           ; Points SI to starting address of buffer
-    mov ax, word ptr [si+3]  ; Loads the last two digits into cent_result
-    mov cent_result, ax
-
-    ; Ensure the buffer is in the correct format (00.00)
-    mov byte ptr [si+3], '.'
-    mov byte ptr [si+4], '$'
-
-    ; Remove leading zeros
+    ; Remove leading zeros for RM
     lea si, buffer          ; Points SI to starting address of buffer
-    mov cx, 3               ; We'll check the first 3 digits (before the decimal point)
+    mov cx, 3               ; We'll check the first 3 digits (before the decimal point / end string)
 remove_leading_zeros:
     cmp byte ptr [si], '0'  ; Check for leading '0'
-    jne display_result      ; If found non-zero number, display the price
+    jne convert_cents       ; If found non-zero number, break from loop
     mov byte ptr [si], ' '  ; Replace '0' with space
     inc si
     loop remove_leading_zeros
 
-display_result:
-    ; Display the price
+convert_cents:
+    ; Convert for cents
+    lea si, buffer
+    mov byte ptr [si+3], '.'   ; Put decimal point at the 4th byte
+    mov cx, 2           ; Loop 2 times for 2 bytes in buffer (max 2 digits)
+    add si, 5           ; Start from the end of buffer before '$'(leave 1 extra $ for end string)
+    mov ax, result_dec  ; Move result to AX
+
+    ; Extract and convert each digit
+convert_loop_dec:
+    xor dx, dx      ; Clear DX for division
+    mov bx, 10      ; Base 10 for conversion
+    div bx          ; AX = AX / 10, DX = remainder (last digit)
+    add dl, 30h     ; Convert digit to ASCII
+    mov [si], dl    ; Store the digit in the buffer
+    dec si          ; Move to the next buffer position
+    loop convert_loop_dec
+
+    ; Display result
     mov ah, 09h
     lea dx, buffer
-    int 21h
-
-    mov ah, 09h
-    lea dx, cent_result
     int 21h
 
     ret
@@ -1582,55 +1555,6 @@ receipt_product_name:
     pop ax
     ret
 display_receipt_product endp
-
-display_receipt_price proc ;Display Price
-    ; Convert the result to ASCII for display
-    lea si, buffer
-    mov cx, 5       ; Loop 5 times for 5 bytes in buffer (max 5 digits)
-    add si, 4       ; Start from the end of buffer (leave 1 extra $ for end string)
-    mov ax, result  ; Move result to AX
-
-    ; Extract and convert each digit
-convert_loop1:
-    xor dx, dx          ; Clear DX for division
-    mov bx, 10          ; Base 10 for conversion
-    div bx              ; AX = AX / 10, DX = remainder (last digit)
-    add dl, 30h         ; Convert digit to ASCII
-    mov [si], dl        ; Store the digit in the buffer
-    dec si              ; Move to the next buffer position
-    loop convert_loop1
-
-    ; Extract the cents
-    lea si, buffer           ; Points SI to starting address of buffer
-    mov ax, word ptr [si+3]  ; Loads the last two digits into cent_result
-    mov cent_result, ax
-
-    ; Ensure the buffer is in the correct format (00.00)
-    mov byte ptr [si+3], '.'
-    mov byte ptr [si+4], '$'
-
-    ; Remove leading zeros
-    lea si, buffer          ; Points SI to starting address of buffer
-    mov cx, 3               ; We'll check the first 3 digits (before the decimal point)
-remove_leading_zeros1:
-    cmp byte ptr [si], '0'  ; Check for leading '0'
-    jne display_receipt_result      ; If found non-zero number, display the price
-    mov byte ptr [si], ' '  ; Replace '0' with space
-    inc si
-    loop remove_leading_zeros1
-
-display_receipt_result:
-    ; Display the price
-    mov ah, 09h
-    lea dx, buffer
-    int 21h
-
-    mov ah, 09h
-    lea dx, cent_result
-    int 21h
-
-    ret
-display_receipt_price endp
 
 add_spaces proc
     push cx
