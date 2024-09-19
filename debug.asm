@@ -131,7 +131,7 @@
     restock_B db '2'
     restock_C db '3'
     restock_D db '4'
-    msg_insufficient_stock db "No enough stock to let the customer buy $",0dh,0ah
+    msg_insufficient_stock db 'No enough stock to let the customer buy $',0dh,0ah
 
     product_1   db "1. Tissue                  $"
     product_2   db "2. Toothpaste              $"
@@ -142,7 +142,6 @@
     restock_x db 0
     restock_y db 0     
     product_qty_store db 3, 6, 9, 5
-    summary db 0 , 0 , 0 , 0 
     msg_confirm_purchase db "Do you want to purchase?(Y/N):$"
     msg_purchase_cancelled db "The purchase cancelled.$"
     confirmation_flag db 0
@@ -796,16 +795,49 @@ copy_product_name:
     mov bl, product_id
     dec bl                        ; Adjust for 0-based index
     mov ah, [product_qty_store + bx] ; Load current stock into AH
+    cmp ah, al
+    jle not_enough_stock
 
-    sub ah, al                    ; Subtract quantity bought from stock
+    sub ah, al                 ; Subtract quantity bought from stock
     mov [product_qty_store + bx], ah ; Store the updated stock
 
+    ; Display the updated stock
+    mov al, ah     ; Load updated stock
+    mov bl,al
+    add al, '0'                          ; Convert to ASCII
+    mov dl, al
+    mov ah, 02h
+    int 21h
+
+    cmp bl,10
+    jl done1
+    mov ah,bl
+    sub al, 10
+    add al, '0'
+    mov dl, al
+    mov ah, 02h
+    int 21h
+
+    jmp done1
+
+not_enough_stock:
     mov al, [product_qty_store + bx] ; Load updated stock
     add al, '0'                      ; Convert to ASCII
     mov dl, al
     mov ah, 02h
     int 21h
+
+    mov ah,09h
+    lea dx,newline
+    int 21h
+
+    mov ah,09h
+    lea dx,msg_insufficient_stock
+    int 21h
+
+    jmp done1
     
+done1:
     pop di
     pop si
     pop dx
@@ -1447,22 +1479,28 @@ testing:
     call printString
     jmp testing
 
-    
-
 PrintReceipt:
     mov ah, 09h
     lea dx, newline
     int 21h
 
     call Enter_to_process  ; Call printing procedure
+    jmp clear_data
     ret
 
 NoPrint:
     ; Display the company name and skip the print process
     ; Print newline
-    mov ah, 09h
-    lea dx, newline
-    int 21h
+    jmp clear_data
+
+clear_data:
+    mov cx, 4              ; Number of elements in the product_qty array
+    lea si, product_qty     ; Load the offset of the product_qty array into SI
+
+zero_qty:
+    mov byte ptr [si], 0    ; Set the current element to 0
+    inc si                  ; Move to the next element in the array
+    loop zero_qty           ; Repeat until CX becomes 0
 
     ret
 
