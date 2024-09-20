@@ -165,6 +165,25 @@
     space_padding db '    ', 24h     ; Four spaces for padding
 
 
+    ;--------------------------------Cashbox----------------------------------------------------
+    ; Cashbox total
+    ;cashbox_total dw 2680  ; Cashbox starts with 0 total
+
+    ;Message for cashbox
+    cashbox_header  db '-------------------------', 0Dh, 0Ah
+                    db '     Cashbox Summary     ', 0Dh, 0Ah
+                    db '-------------------------', 0Dh, 0Ah, 0
+    cashbox_total_msg      db 'Cashbox Total: RM', '$'
+    msg_continue_1         db  'Press enter to continue...', '$'
+    ;formatted_total_buffer db 6 dup(0)         ; Reserve 6 bytes for formatted price (e.g. 123.45)
+    ;cashbox_cents          dw ?
+    cashbox_total_int dw 0
+    cashbox_total_dec dw 0
+    cashbox_overflow  dw ?
+    cashbox_result_int dw ?             ; Variable to store RM result
+    cashbox_result_dec dw ?             ; Variable to store cents result
+    cashbox_buffer db 7 dup('$')          ; Buffer for displaying
+
 .code
 
 main proc
@@ -441,8 +460,11 @@ display_receipt_loop:
     mul bx                          ; AX multiplies BX to get total (price * quantity = total)
     mov result_int, ax              ; Store the total into result
 
+
     ; Add to total for RM
     add total_int, ax
+
+    call update_cashbox
 
     ; Calculate subtotal for cents
     shl si, 1
@@ -455,6 +477,7 @@ display_receipt_loop:
 
     ; Add to total for cents
     add total_dec, ax
+    
     
     ; Extract overflow in cents result
     xor dx, dx                  ; Clear DX to save remainder
@@ -580,7 +603,7 @@ option_2:
 
 option_3:
     ; Placeholder for Show cashbox
-    jmp menu_loop
+    jmp display_cashbox_total
 
 option_4:
     ; restock model
@@ -1569,6 +1592,130 @@ add_space_loop:
     ret
 add_spaces endp
 
+update_cashbox proc
+    ; Add transaction total to cashbox total
+    ;mov ax, total_int
+    add cashbox_total_int, ax
+   ; mov ax, total_dec
+   add cashbox_total_dec, ax
+    
+    ; Handle overflow from cents to dollars
+    mov ax, cashbox_total_dec
+    cmp ax, 100
+    jl no_overflow
+    sub ax, 100
+    mov cashbox_total_dec, ax
+    inc cashbox_total_int
+no_overflow:
+    ret
+update_cashbox endp
+
+display_cashbox_total proc
+
+    call clear_screen
+
+    call display_cashbox_header_color_name
+    
+    ; Display cashbox total message
+    mov ah, 09h
+    lea dx, cashbox_total_msg
+    int 21h
+    
+    ; Extract overflow in cents result for cashbox total
+    xor dx, dx                  ; Clear DX to save remainder
+    mov ax, cashbox_total_dec   ; Load cents into AX
+    mov bx, 100                 ; Move BX to 100 for division
+    div bx                      ; AX = AX / BX, remainder goes to DX
+    mov cashbox_overflow, ax     ; Move AX (overflow) to result_overflow
+    mov cashbox_total_dec, dx   ; Move DX (remainder (cents)) to cashbox_total_dec
+    
+    ; Add the overflow to RM
+    mov ax, cashbox_total_int   ; Load RM into AX
+    mov bx, cashbox_overflow     ; Load overflow into BX
+    add ax, bx                  ; AX = AX + BX (overflow)
+    mov cashbox_total_int, ax   ; Store result back into cashbox_total_int
+    mov bx, 0                   ; Set BX to 0
+    mov ax, 0                   ; Set AX to 0
+    mov cashbox_overflow, ax     ; Clear result_overflow to 0
+    
+    ; Move both totals into result for display
+    mov ax, cashbox_total_int
+    mov cashbox_result_int, ax  ; Store total RM into result_int for display
+    mov ax, cashbox_total_dec
+    mov cashbox_result_dec, ax  ; Store total cents into result_dec for display
+    mov ax, 0           ; Clear AX
+    
+    call display_price_cashbox
+    
+    ; Display newline
+    mov ah, 09h
+    lea dx, newline
+    int 21h
+    
+    ; Display continue message
+    lea dx, msg_continue_1
+    int 21h
+    
+    ; Wait for Enter key
+    mov ah, 01h
+    int 21h
+    
+    ret
+display_cashbox_total endp
+
+display_price_cashbox proc ;Convert results into ASCII to display
+    ; Convert for RM
+    lea si, cashbox_buffer
+    mov cx, 3           ; Loop 3 times for 3 bytes in buffer (max 3 digits)
+    add si, 2           ; Start from the end of buffer before decimal
+    mov ax, cashbox_result_int  ; Move result to AX
+
+    ; Extract and convert each digit
+convert_cashbox_loop_int:
+    xor dx, dx      ; Clear DX for division
+    mov bx, 10      ; Base 10 for conversion
+    div bx          ; AX = AX / 10, DX = remainder (last digit)
+    add dl, 30h     ; Convert digit to ASCII
+    mov [si], dl    ; Store the digit in the buffer
+    dec si          ; Move to the next buffer position
+    loop convert_cashbox_loop_int
+
+    ; Remove leading zeros for RM
+    lea si, cashbox_buffer          ; Points SI to starting address of buffer
+    mov cx, 3               ; We'll check the first 3 digits (before the decimal point / end string)
+remove_leading_zeros_cashbox:
+    cmp byte ptr [si], '0'  ; Check for leading '0'
+    jne convert_cents_cashbox       ; If found non-zero number, break from loop
+    mov byte ptr [si], ' '  ; Replace '0' with space
+    inc si
+    loop remove_leading_zeros_cashbox
+
+convert_cents_cashbox:
+    ; Convert for cents
+    lea si, cashbox_buffer
+    mov byte ptr [si+3], '.'   ; Put decimal point at the 4th byte
+    mov cx, 2           ; Loop 2 times for 2 bytes in buffer (max 2 digits)
+    add si, 5           ; Start from the end of buffer before '$'(leave 1 extra $ for end string)
+    mov ax, cashbox_result_dec  ; Move result to AX
+
+    ; Extract and convert each digit
+convert_loop_dec_cashbox:
+    xor dx, dx      ; Clear DX for division
+    mov bx, 10      ; Base 10 for conversion
+    div bx          ; AX = AX / 10, DX = remainder (last digit)
+    add dl, 30h     ; Convert digit to ASCII
+    mov [si], dl    ; Store the digit in the buffer
+    dec si          ; Move to the next buffer position
+    loop convert_loop_dec_cashbox
+
+    ; Display result
+    mov ah, 09h
+    lea dx, cashbox_buffer
+    int 21h
+
+    ret
+display_price_cashbox endp
+
 display_company_menu_colour_name proc ;Thee Chern Hao
     ; Save registers to preserve their original values
     push ax
@@ -1875,5 +2022,64 @@ done_receipt_start:
     pop ax
     ret                   ; Return from the procedure
 display_receipt_start_color_name endp
+
+display_cashbox_header_color_name proc
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    ; Set up for colored text display
+    mov bl, 13            ; Text color: bright white (15) on black background (0)
+
+    mov si, offset cashbox_header  ; Point SI to the start of receipt_start string
+    mov dh, 0             ; Start at row 0 (you can adjust this as needed)
+    mov dl, 0             ; Start at column 0
+
+    ; Start displaying characters
+cashbox_header_loop:
+    lodsb                 ; Load next character from [SI] into AL and increment SI
+
+    cmp al, 0             ; Check for end of string (null terminator)
+    je done_cashbox_header ; If end of string, exit the loop
+
+    cmp al, 0Dh           ; Check if the character is a carriage return (ASCII code 0Dh)
+    je skip_char_cashbox_header  ; If carriage return, skip to next character
+
+    cmp al, 0Ah           ; Check if the character is a newline (ASCII code 0Ah)
+    jne print_char_cashbox_header  ; If not a newline, proceed to print the character
+
+    ; Handle newline character
+    inc dh                ; Move cursor to next row
+    mov dl, 0             ; Reset cursor to first column
+    jmp set_cursor_cashbox_header
+
+print_char_cashbox_header:
+    ; Print the character with color
+    mov ah, 09h           ; BIOS function to write character and attribute
+    mov bh, 0             ; Display page number (0)
+    mov cx, 1             ; Number of times to print the character (once)
+    int 10h               ; Call BIOS interrupt to display the character
+
+    inc dl                ; Move cursor to next column
+
+set_cursor_cashbox_header:
+    mov ah, 02h           ; Set cursor position
+    mov bh, 0             ; Page number
+    int 10h               ; Call BIOS interrupt to set new position
+
+skip_char_cashbox_header:
+    jmp cashbox_header_loop ; Continue with the next character
+
+done_cashbox_header:
+    ; Restore registers to their original values
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret                   ; Return from the procedure
+display_cashbox_header_color_name endp
 
 end main
