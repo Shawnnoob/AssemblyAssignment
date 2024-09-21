@@ -1794,10 +1794,9 @@ display_menu_colour_name proc
     push dx
     push si
 
-    ; Set video mode to standard 80x25 text mode (just in case)
-    ;mov ah, 00h
-    ;mov al, 03h
-    ;int 10h
+    mov ah, 09h
+    lea dx, newline
+    int 21h
 
     ; Set up for colored text display
     mov bl, 14            ; Text color: yellow (14) on black background (0)
@@ -1857,6 +1856,10 @@ display_product_menu_color_name proc
     push cx
     push dx
     push si
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
 
     ; Set up for colored text display
     mov bl, 11            ; Text color: light cyan (11) on black background (0)
@@ -1975,6 +1978,10 @@ display_receipt_start_color_name proc
     push cx
     push dx
     push si
+
+    mov ah, 09h
+    lea dx, newline
+    int 21h
 
     ; Set up for colored text display
     mov bl, 9            ; Text color: bright white (15) on black background (0)
