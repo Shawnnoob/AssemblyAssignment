@@ -224,7 +224,7 @@
     cashbox_buffer db 7 dup('$')          ; Buffer for displaying
 
     ;--------------------------------Sound---------------------------------------------------------
-    tone1 dw 6370h	; frequency for tone1 (440 Hz)
+    sound1 dw 6370h	; frequency for tone1 (440 Hz)
 	newline_music db 0dh,0ah,"$"
 
 .code
@@ -618,14 +618,14 @@ display_total:
     call calculate_discount
     call display_discount
 
-     ; Play tone1 (440 Hz)
-	mov ax,tone1
+     ; Play sound1 (440 Hz)
+	mov ax, sound1
 	call PlayTone
 	mov ah,09h
 	lea dx,newline_music
 	int 21h
 
-	; Stop tone1
+	; Stop sound1
 	call StopTone
 	mov ah,09h
 	lea dx,newline_music
