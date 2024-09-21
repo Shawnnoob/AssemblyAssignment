@@ -44,7 +44,7 @@
     quantity db ?                   ; Buffer to store quantity user inputs
 
     ; Variable for calculations
-    preset_price_int dw 1, 13, 17, 1    ; Price in RM
+    preset_price_int dw 1, 130, 17, 1    ; Price in RM
     preset_price_dec dw 20, 20, 90, 00  ; Price in cents
 
     result_int dw ?             ; Variable to store RM result
@@ -94,7 +94,9 @@
                     db  "                                           $", 0dh, 0ah
 
     wkz_subTotal    db  "SubTotal                       |$", 0dh, 0ah
-    discount    db "Discount                           $", 0dh, 0ah
+    discount        db  "Discount(10%)                  |$", 0dh, 0ah
+    discount_value  dw 0                 ; Store discount amount here
+    no_discount_msg db "0.00$",0dh,0ah
     sst         db "SST(8%)                            $", 0dh, 0ah
     wkz_total       db "Total                              $", 0dh, 0ah   
 
@@ -154,6 +156,8 @@
     msg_purchase_cancelled db "The purchase cancelled.$"
     confirmation_flag db 0
     space_padding db '    ', 24h     ; Four spaces for padding
+    discount_dec dw 0
+    discount_int dw 0
 
 
 .code
@@ -523,6 +527,16 @@ display_total:
     mov ax, 0           ; Clear AX
 
     call display_price
+
+    mov ah,09h
+    lea dx,newline
+    int 21h
+    lea dx,discount
+    int 21h
+
+    call calculate_discount
+    call display_discount
+    
 
     mov ah,09h
     lea dx, newline
@@ -1467,6 +1481,7 @@ NoPrint:
     jmp clear_data
 
 clear_data:
+    
     mov cx, 4              ; Number of elements in the product_qty array
     lea si, product_qty     ; Load the offset of the product_qty array into SI
 
@@ -1474,10 +1489,134 @@ zero_qty:
     mov byte ptr [si], 0    ; Set the current element to 0
     inc si                  ; Move to the next element in the array
     loop zero_qty           ; Repeat until CX becomes 0
+    ; Clear buffer
+    mov cx, 7               ; Assuming buffer is 10 bytes long (adjust size accordingly)
+    lea si, buffer           ; Load the offset of the buffer into SI
+
+zero_buffer:
+    mov byte ptr [si], 0     ; Set the current byte in buffer to 0
+    inc si                   ; Move to the next byte
+    loop zero_buffer          ; Repeat until CX becomes 0
+
+    ; Clear discount_value
+    mov discount_value, 0    ; Directly set discount_value to 0
 
     ret
 
 Ask_Print_Receipt endp
+
+calculate_discount proc
+
+    mov ax, total_int          ; Load total RM (integer part) into AX
+    cmp ax, 100                 ; Compare result_int with 100
+    jl no_discount
+    ; Calculate discount on integer part (result_int)
+    mov ax, total_int          ; Load total RM (integer part) into AX
+    mov bx, 10                   ; 10% discount
+    mul bx                      ; Multiply result_int by 10
+    mov cx, 100                 ; Divide by 100 to get the percentage
+    div cx                      ; AX now has the discount integer part
+    mov discount_int, ax  ; Store the integer part of the discount
+
+    ; Store the remainder from the division in DX (this is part of the decimal)
+    mov ax, dx                  ; DX contains the remainder (this is part of cents)
+    mov discount_dec, ax  ; Temporarily store it in discount_amount_dec
+
+    ; Calculate discount on decimal part (result_dec)
+    mov ax, total_dec          ; Load total cents into AX
+    mul bx                      ; Multiply result_dec by 10
+    div cx                      ; Divide by 100 to get the percentage
+    add discount_dec, ax  ; Add the discount from the decimal part to the remainder
+
+    ; Handle cases where discount_amount_dec exceeds 100
+    cmp discount_dec, 100
+    jl skip_adjustment
+    ; If decimal part exceeds 100, increase discount_amount_int by 1
+    inc discount_int
+    sub discount_dec, 100 ; Adjust the decimal part
+skip_adjustment:
+    ret
+
+no_discount:
+    ; If result_int < 100, set discount to 0.00
+    mov discount_int, 0   ; No discount for integer part
+    mov discount_dec, 0   ; No discount for decimal part
+    ret
+calculate_discount endp
+
+
+
+;-----------------------------------
+; Procedure to display discount amount
+;-----------------------------------
+display_discount proc
+    mov ax, discount_int  ; Load discounted RM (integer part)
+    call display_integer_part    ; Display the integer part
+
+    ; Display the decimal point
+    lea si, buffer
+    add si, 3                    ; Move to 4th position
+    mov byte ptr [si], '.'       ; Insert decimal point
+
+    mov ax, discount_dec  ; Load discounted cents (decimal part)
+    call display_decimal_part    ; Display the decimal part
+
+    ; Display the result
+    lea dx, buffer               ; Load buffer into DX
+    mov ah, 09h                  ; DOS interrupt to display string
+    int 21h
+    ret
+display_discount endp
+
+;-----------------------------------
+; Procedure to display integer part
+;-----------------------------------
+display_integer_part proc
+    lea si, buffer               ; Load buffer into SI
+    mov cx, 3                    ; Loop for 3 digits
+    add si, 2                    ; Start at the last buffer position
+
+convert_loop_int_discount:
+    xor dx, dx                   ; Clear DX for division
+    mov bx, 10                   ; Set divisor to 10
+    div bx                       ; Divide AX by 10, remainder in DX
+    add dl, 30h                  ; Convert remainder to ASCII
+    mov [si], dl                 ; Store ASCII in buffer
+    dec si                       ; Move to next buffer position
+    loop convert_loop_int_discount
+
+    ; Remove leading zeroes
+    lea si, buffer               ; Point SI to start of buffer
+    mov cx, 3                    ; Check the first 3 digits
+remove_leading_zeros_discount:
+    cmp byte ptr [si], '0'       ; Check for leading '0'
+    jne skip_zero_removal        ; If not '0', stop removing
+    mov byte ptr [si], ' '       ; Replace '0' with space
+    inc si                       ; Move to the next byte
+    loop remove_leading_zeros_discount
+
+skip_zero_removal:
+    ret
+display_integer_part endp
+
+;-----------------------------------
+; Procedure to display decimal part
+;-----------------------------------
+display_decimal_part proc
+    lea si, buffer               ; Load buffer into SI
+    add si, 5                    ; Move to the position after the decimal point
+    mov cx, 2                    ; Two digits for the decimal part
+
+convert_loop_dec_discount:
+    xor dx, dx                   ; Clear DX for division
+    mov bx, 10                   ; Set divisor to 10
+    div bx                       ; Divide AX by 10, remainder in DX
+    add dl, 30h                  ; Convert remainder to ASCII
+    mov [si], dl                 ; Store ASCII in buffer
+    dec si                       ; Move back in buffer
+    loop convert_loop_dec_discount
+    ret
+display_decimal_part endp
 
 
 Enter_to_process proc
