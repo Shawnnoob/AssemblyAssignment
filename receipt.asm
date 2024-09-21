@@ -6,9 +6,9 @@
                  db "--------------------", 0dh, 0ah, 0
     menu db "-----------------------------------", 0dh, 0ah
          db "|       1. Start transaction      |", 0dh, 0ah
-         db "|       2. Show product           |", 0dh, 0ah
-         db "|       3. Show cashbox           |", 0dh, 0ah
-         db "|       4. Restock product        |", 0dh, 0ah
+         db "|       2. Show cashbox           |", 0dh, 0ah
+         db "|       3. Restock product        |", 0dh, 0ah
+         db "|       4. System HELP            |", 0dh, 0ah
          db "|       5. Exit program           |", 0dh, 0ah
          db "-----------------------------------", 0dh, 0ah, '$'
 
@@ -93,12 +93,12 @@
                     db  "===========================================", 0dh, 0ah
                     db  "                                           $", 0dh, 0ah
 
-    wkz_subTotal    db  "SubTotal                       |$", 0dh, 0ah
+    wkz_subTotal    db  "Total                          |$", 0dh, 0ah
     discount        db  "Discount(10%)                  |$", 0dh, 0ah
     discount_value  dw 0                 ; Store discount amount here
     no_discount_msg db "0.00$",0dh,0ah
-    sst         db      "SST(8%)                        |$", 0dh, 0ah
-    wkz_total       db  "Total                          |$", 0dh, 0ah   
+    sst         db      "SST (8%)                       |$", 0dh, 0ah
+    wkz_total       db  "Net Total                      |$", 0dh, 0ah   
     after_total_int dw 0
     after_total_dec dw 0
 
@@ -145,7 +145,8 @@
     restock_B db '2'
     restock_C db '3'
     restock_D db '4'
-    msg_insufficient_stock db 'No enough stock to let the customer buy $',0dh,0ah
+    msg_insufficient_stock db 0dh, 0ah, 'Not enough stock for sales.', 0dh, 0ah
+                           db 'Enter to try again...$'
 
     product_1   db "1. Tissue                  $"
     product_2   db "2. Toothpaste              $"
@@ -161,7 +162,41 @@
     confirmation_flag db 0
     space_padding db '    ', 24h     ; Four spaces for padding
 
+;----------------------------HELP function---------------------------
+    msg_help db '-Welcome to the HELP page!        ', 0dh, 0ah
+             db '-You are now using the POS system of ABC Retail.          ', 0dh, 0ah
+             db '-This system helps you to perform transactions and track stock.          ', 0dh, 0ah
+             db '-Below is a list of functions available in the system.          ', 0dh, 0ah, 0dh, 0ah, '$'
 
+    msg_options db '===============================================================', 0dh, 0ah
+                db '|                    Functions Available                      |', 0dh, 0ah
+                db '===============================================================', 0dh, 0ah
+                db '| 1. Start transaction                                        |', 0dh, 0ah
+                db '| 2. Show cashbox                                             |', 0dh, 0ah
+                db '| 3. Restock product                                          |', 0dh, 0ah
+                db '| 4. RETURN TO MAIN                                           |', 0dh, 0ah
+                db '===============================================================', 0dh, 0ah, '$'
+
+    prompt_help db 'Select the function to provide help on ( 1-3 | 4 to exit ): $'
+
+    help_option1 db 0dh, 0ah
+                 db ':Start transaction:- ', 0dh, 0ah
+                 db ':Starts a  new transaction  by  choosing  products  and  their ', 0dh, 0ah
+                 db ':quantity.  Product ID  will  be  used  to  pick  the  product ', 0dh, 0ah
+                 db ':desired. Prices will be displayed as a receipt. ', 0dh, 0ah, 0dh, 0ah, '$'
+
+    help_option2 db 0dh, 0ah
+                 db ':Show cashbox:- ', 0dh, 0ah
+                 db ':Displays the amount of cash  accumulated within the  cashbox. ', 0dh, 0ah
+                 db ':It is the accumulation of all current session. ', 0dh, 0ah, 0dh, 0ah, '$'
+
+    help_option3 db 0dh, 0ah
+                 db ':Restock product:- ', 0dh, 0ah
+                 db ':Allows user to  increase  the  inventory level  of  products. ', 0dh, 0ah
+                 db ':Product ID will  be  used to  pick  the  product desired, and ', 0dh, 0ah
+                 db ':quantity will be added as input. ', 0dh, 0ah, 0dh, 0ah, '$'
+
+    msg_invalid_help db 'Invalid option. Please choose a number between 0 and 4.$'
 
 .code
 
@@ -178,7 +213,7 @@ success_login: ; Clear the input_buffer
 
 clear_loop:
     mov [si], al                 ; Set current byte to 0
-    inc si                       ; Move to the next byte in the buffer
+    inc si                       ; move to the next byte in the buffer
     loop clear_loop              ; Repeat until CX = 0 (end of buffer)
 
 menu_loop:
@@ -325,21 +360,35 @@ valid_quantity:
     mov bl, product_id
     dec bl  ; Adjust for 0-based index
     mov bh, 0
-    mov al, [product_qty + bx]
-    add al, quantity
+    mov al, quantity
     cmp al, 3
     jg max_quantity_reached_msg
     jmp valid_quantity_2
+
 max_quantity_reached_msg:
     jmp max_quantity_reached
 
 valid_quantity_2:
+    ; Check if the stock has enough qty to reduce
+    mov bl, product_id
+    dec bl  ; Adjust for 0-based index
+    mov bh, 0
+    mov al, [product_qty_store + bx]
+    mov ah, [quantity]
+    cmp ah, al
+    jg not_enough_stock_msg
+    jmp valid_quantity_3
+
+not_enough_stock_msg:
+    jmp not_enough_stock
+
+valid_quantity_3:
     ; Update product quantity
     mov bl, product_id
     dec bl  ; Adjust for 0-based index
     mov bh, 0
     mov al, quantity
-    add [product_qty + bx], al
+    mov [product_qty + bx], al
 
     ; Ask if user wants to continue shopping
     mov ah, 09h
@@ -406,10 +455,10 @@ to_display_receipt:
     push dx
 
     mov cx, 4   ; Loop 4 times for 4 products
-    mov si, 0   ; Move SI to 0 for index
+    mov si, 0   ; move SI to 0 for index
 display_receipt_loop:
     push cx
-    mov ax, si                    ; Move SI into AX
+    mov ax, si                    ; move SI into AX
     xor ah, ah                    ; Clear AH
     add al, 1                     ; Add 1 to AL since display_selected_product function decrements product_id
     mov product_id, al            ; Load AL (with SI value) into product_id
@@ -424,7 +473,7 @@ display_receipt_loop:
 ; Display product quantity
     mov bl, product_qty[si]        ; Load quantity
     add bl, '0'                    ; Convert to ASCII
-    mov dl, bl                     ; Move quantity into DL for display  
+    mov dl, bl                     ; move quantity into DL for display  
     mov ah, 02h
     int 21h                        ; Display quantity
 
@@ -463,10 +512,10 @@ display_receipt_loop:
     ; Extract overflow in cents result
     xor dx, dx                  ; Clear DX to save remainder
     mov ax, result_dec          ; Load cents into AX
-    mov bx, 100                 ; Move BX to 100 for division
+    mov bx, 100                 ; move BX to 100 for division
     div bx                      ; AX = AX / BX, remainder goes to DX
-    mov result_overflow, ax     ; Move AX (overflow) to result_overflow
-    mov result_dec, dx          ; Move DX (remainder (cents)) to result_dec
+    mov result_overflow, ax     ; move AX (overflow) to result_overflow
+    mov result_dec, dx          ; move DX (remainder (cents)) to result_dec
 
     ; Add the overflow to RM
     mov ax, result_int          ; Load RM into AX
@@ -508,10 +557,10 @@ display_total:
     ; Extract overflow in cents result for total
     xor dx, dx                  ; Clear DX to save remainder
     mov ax, total_dec           ; Load cents into AX
-    mov bx, 100                 ; Move BX to 100 for division
+    mov bx, 100                 ; move BX to 100 for division
     div bx                      ; AX = AX / BX, remainder goes to DX
-    mov result_overflow, ax     ; Move AX (overflow) to result_overflow
-    mov total_dec, dx           ; Move DX (remainder (cents)) to total_dec
+    mov result_overflow, ax     ; move AX (overflow) to result_overflow
+    mov total_dec, dx           ; move DX (remainder (cents)) to total_dec
 
     ; Add the overflow to RM
     mov ax, total_int           ; Load RM into AX
@@ -522,7 +571,7 @@ display_total:
     mov ax, 0                   ; Set AX to 0
     mov result_overflow, ax     ; Clear result_overflow to 0
 
-    ; Move both totals into result
+    ; move both totals into result
     mov ax, total_int
     mov result_int, ax  ; Store total RM into result_int for display
     mov ax, total_dec   
@@ -581,6 +630,11 @@ jmp_sst:
     mov ah, 01h
     int 21h
 
+    ; Clear all totals
+    mov ax, 0
+    mov total_int, ax
+    mov total_dec, ax
+
     pop si
     pop ax
     pop bx
@@ -612,17 +666,26 @@ max_quantity_reached:
     int 21h
     jmp transaction_loop
 
+not_enough_stock:
+    mov ah, 09h
+    lea dx, msg_insufficient_stock
+    int 21h
+    mov ah, 01h
+    int 21h
+    jmp transaction_loop
+
 option_2:
-    ; Placeholder for Show product
+    ; Cashbox module
     jmp menu_loop
 
 option_3:
-    ; Placeholder for Show cashbox
+    ; Restock module
+    call restock_proc
     jmp menu_loop
 
 option_4:
-    ; restock model
-    call restock_proc
+    ; HELP module
+    call help_menu
     jmp menu_loop
 
 exit_program:
@@ -657,7 +720,7 @@ login_loop:
     ; Null-terminate the string after the input length
     lea di, inputdata
     mov cl, byte ptr [input_buffer + 1] ; Get length of user input
-    add di, cx                ; Move DI to the end of the input string
+    add di, cx                ; move DI to the end of the input string
     mov byte ptr [di], 0      ; Null-terminate the input
 
     ; Compare username
@@ -684,7 +747,7 @@ login_loop:
     ; Null-terminate the string after the input length
     lea di, inputdata
     mov cl, [input_buffer + 1] ; Get length of user input
-    add di, cx                ; Move DI to the end of the input string
+    add di, cx                ; move DI to the end of the input string
     mov byte ptr [di], 0      ; Null-terminate the input
 
     ; Compare password
@@ -748,9 +811,9 @@ display_selected_product proc ;Display Product
     mov bl, product_id          ; Load product_id into BL
     dec bl                      ; Adjust for 0-based index
     mov bh, 0                   ; Clear BH
-    mov si, bx                  ; Move BX (product_id value) into SI
+    mov si, bx                  ; move BX (product_id value) into SI
     mov al, product_lengths[si] ; Get the length of the product name
-    mov cl, al                  ; Move length into CL
+    mov cl, al                  ; move length into CL
     mov ch, 0                   ; Clear high byte of CX
 
     ; Calculate the offset for the selected product name
@@ -806,58 +869,7 @@ copy_product_name:
     mov dl, al
     mov ah, 02h
     int 21h
-
-    ; Update stock after purchase
-    ; Get the quantity the user purchased from product_qty
-    mov al, [product_qty + bx]    ; Load the quantity the user bought into AL
-
-    ; Get the current stock from product_qty_store
-    mov bl, product_id
-    dec bl                        ; Adjust for 0-based index
-    mov ah, [product_qty_store + bx] ; Load current stock into AH
-    cmp ah, al
-    jle not_enough_stock
-
-    sub ah, al                 ; Subtract quantity bought from stock
-    mov [product_qty_store + bx], ah ; Store the updated stock
-
-    ; Display the updated stock
-    mov al, ah     ; Load updated stock
-    mov bl,al
-    add al, '0'                          ; Convert to ASCII
-    mov dl, al
-    mov ah, 02h
-    int 21h
-
-    cmp bl,10
-    jl done1
-    mov ah,bl
-    sub al, 10
-    add al, '0'
-    mov dl, al
-    mov ah, 02h
-    int 21h
-
-    jmp done1
-
-not_enough_stock:
-    mov al, [product_qty_store + bx] ; Load updated stock
-    add al, '0'                      ; Convert to ASCII
-    mov dl, al
-    mov ah, 02h
-    int 21h
-
-    mov ah,09h
-    lea dx,newline
-    int 21h
-
-    mov ah,09h
-    lea dx,msg_insufficient_stock
-    int 21h
-
-    jmp done1
     
-done1:
     pop di
     pop si
     pop dx
@@ -871,7 +883,7 @@ display_price proc ;Convert results into ASCII to display
     lea si, buffer
     mov cx, 3           ; Loop 3 times for 3 bytes in buffer (max 3 digits)
     add si, 2           ; Start from the end of buffer before decimal
-    mov ax, result_int  ; Move result to AX
+    mov ax, result_int  ; move result to AX
 
     ; Extract and convert each digit
 convert_loop_int:
@@ -880,12 +892,12 @@ convert_loop_int:
     div bx          ; AX = AX / 10, DX = remainder (last digit)
     add dl, 30h     ; Convert digit to ASCII
     mov [si], dl    ; Store the digit in the buffer
-    dec si          ; Move to the next buffer position
+    dec si          ; move to the next buffer position
     loop convert_loop_int
 
     ; Remove leading zeros for RM
     lea si, buffer          ; Points SI to starting address of buffer
-    mov cx, 3               ; We'll check the first 3 digits (before the decimal point / end string)
+    mov cx, 2               ; We'll check the first 2 digits (leave 1 in case of RM0)
 remove_leading_zeros:
     cmp byte ptr [si], '0'  ; Check for leading '0'
     jne convert_cents       ; If found non-zero number, break from loop
@@ -899,7 +911,7 @@ convert_cents:
     mov byte ptr [si+3], '.'   ; Put decimal point at the 4th byte
     mov cx, 2           ; Loop 2 times for 2 bytes in buffer (max 2 digits)
     add si, 5           ; Start from the end of buffer before '$'(leave 1 extra $ for end string)
-    mov ax, result_dec  ; Move result to AX
+    mov ax, result_dec  ; move result to AX
 
     ; Extract and convert each digit
 convert_loop_dec:
@@ -908,7 +920,7 @@ convert_loop_dec:
     div bx          ; AX = AX / 10, DX = remainder (last digit)
     add dl, 30h     ; Convert digit to ASCII
     mov [si], dl    ; Store the digit in the buffer
-    dec si          ; Move to the next buffer position
+    dec si          ; move to the next buffer position
     loop convert_loop_dec
 
     ; Display result
@@ -933,8 +945,8 @@ compare_loop:
     cmp dl, 0        ; Check if we reached the null terminator
     je compare_match ; If both strings have the same length, they match
 
-    inc si           ; Move to next character in first string
-    inc di           ; Move to next character in second string
+    inc si           ; move to next character in first string
+    inc di           ; move to next character in second string
     loop compare_loop ; Continue comparing characters
 
 compare_match:
@@ -990,7 +1002,7 @@ company_name_loop:
     jne print_char       ; If not a newline, proceed to print the character
 
     ; Handle newline character
-    inc dh               ; Move cursor to next row
+    inc dh               ; move cursor to next row
     mov dl, 0            ; Reset cursor to first column
     jmp set_cursor
 
@@ -999,14 +1011,14 @@ print_char:
     mov ah, 09h          ; BIOS function to write character and attribute
     mov bh, 0            ; Display page number (0)
     mov cx, 1            ; Number of times to print the character (once)
-    int 10h              ; Call BIOS interrupt to display the character
+    int 10h              ; call BIOS interrupt to display the character
 
-    inc dl               ; Move cursor to next column
+    inc dl               ; move cursor to next column
 
 set_cursor:
     mov ah, 02h          ; Set cursor position
     mov bh, 0            ; Page number
-    int 10h              ; Call BIOS interrupt to set new position
+    int 10h              ; call BIOS interrupt to set new position
 
 skip_char:
     jmp company_name_loop       ; Continue with the next character
@@ -1060,6 +1072,7 @@ scroll_screen proc ;Scroll Screen
 scroll_screen endp
 
 ;--------------------------------------------Restock------------------------------------
+
 nextLine proc
     mov ah,02h
     mov dl,10d
@@ -1080,7 +1093,7 @@ printString endp
 
 captureChar proc
     mov ah, 01h   ; Set DOS function to read a single character with echo
-    int 21h       ; Interrupt 21h to read from keyboard
+    int 21h       ; interrupt 21h to read from keyboard
     ret 
 captureChar endp
 
@@ -1401,6 +1414,12 @@ confirm_purchase proc
     cmp al, 'N'                 
     je purchase_cancelled        
 
+    mov ah, 09h
+    lea dx, error
+    int 21h
+
+    mov ah, 01h
+    int 21h
     ; If input is invalid, ask again (simple loop)
     jmp confirm_purchase         ; Loop back if neither Y nor N
 
@@ -1417,7 +1436,7 @@ purchase_cancelled:
 
 clear_qty_loop:
     mov byte ptr [si], 0          ; Set the current product quantity to 0
-    inc si                        ; Move to the next product quantity
+    inc si                        ; move to the next product quantity
     loop clear_qty_loop           ; Repeat until all quantities are cleared
 
     ret                          ; Return from the procedure
@@ -1430,30 +1449,21 @@ reduce_stock proc
     push dx
 
     ; Parameters: product_id in BL, quantity purchased in AL
-
+    mov cx, 4
+    mov si, 0
+reduce_stock_loop:
     ; Load current stock from product_qty_store
-    mov bl, product_id
-    dec bl                       ; Adjust for 0-based index
-    mov ah, [product_qty_store + bx] ; Load current stock into AH
-
-    ; Check if there is enough stock
-    cmp ah, al                   ; Compare stock (AH) with quantity bought (AL)
-    jb insufficient_stock         ; Jump if stock is less than the quantity bought
+    ;mov bl, product_id
+    ;dec bl                              ; Adjust for 0-based index
+    mov ah, [product_qty_store + si]    ; Load current stock into AH
+    mov al, [product_qty + si]          ; Load purchase qty into AL
 
     ; Subtract quantity bought from stock
     sub ah, al
-    mov [product_qty_store + bx], ah ; Store the updated stock
+    mov [product_qty_store + si], ah ; Store the updated stock
 
-    jmp done_reduce_stock
-
-insufficient_stock:
-    ; Display 0 to indicate no stock available
-     ; Set stock to 0 if insufficient
-    mov byte ptr [product_qty_store + bx], 0
-
-    mov ah, 09h
-    lea dx, msg_insufficient_stock
-    int 21h
+    inc si
+    loop reduce_stock_loop
 
 done_reduce_stock:
     pop dx
@@ -1508,7 +1518,7 @@ PrintReceipt:
     lea dx, newline
     int 21h
 
-    call Enter_to_process  ; Call printing procedure
+    call Enter_to_process  ; call printing procedure
     jmp clear_data
     ret
 
@@ -1524,15 +1534,16 @@ clear_data:
 
 zero_qty:
     mov byte ptr [si], 0    ; Set the current element to 0
-    inc si                  ; Move to the next element in the array
+    inc si                  ; move to the next element in the array
     loop zero_qty           ; Repeat until CX becomes 0
+
     ; Clear buffer
-    mov cx, 7               ; Assuming buffer is 10 bytes long (adjust size accordingly)
+    mov cx, 6               ; Clear 6 bytes of buffer (Leave $ for last)
     lea si, buffer           ; Load the offset of the buffer into SI
 
 zero_buffer:
     mov byte ptr [si], 0     ; Set the current byte in buffer to 0
-    inc si                   ; Move to the next byte
+    inc si                   ; move to the next byte
     loop zero_buffer          ; Repeat until CX becomes 0
 
     ; Clear discount_value
@@ -1565,48 +1576,51 @@ calculate_discount proc
     div cx                      ; Divide by 100 to get the percentage
     add discount_dec, ax  ; Add the discount from the decimal part to the remainder
 
+check_discount_overflow:
     ; Handle cases where discount_amount_dec exceeds 100
     cmp discount_dec, 100
-    jl skip_adjustment
-    ; If decimal part exceeds 100, increase discount_amount_int by 1
+    jl skip_adjustment          ; If decimal part exceeds 100, increase discount_amount_int by 1
     inc discount_int
-    sub discount_dec, 100 ; Adjust the decimal part
+    sub discount_dec, 100       ; Adjust the decimal part
+    loop check_discount_overflow
+
 skip_adjustment:
     ret
 
 no_discount:
     ; If result_int < 100, set discount to 0.00
-    mov discount_int, 0   ; No discount for integer part
-    mov discount_dec, 0   ; No discount for decimal part
+    mov discount_int, 0         ; No discount for integer part
+    mov discount_dec, 0         ; No discount for decimal part
     ret
 calculate_discount endp
 
 calculate_sst proc
 
-    mov ax, total_int          ; Load total RM (integer part) into AX
+    mov ax, total_int           ; Load total RM (integer part) into AX
     ; Calculate discount on integer part (result_int)
-    mov bx, 8                   ; 10% discount
-    mul bx                      ; Multiply result_int by 10
+    mov bx, 8                   ; 8% sst
+    mul bx                      ; Multiply total_int by 8
     mov cx, 100                 ; Divide by 100 to get the percentage
     div cx                      ; AX now has the discount integer part
-    mov sst_int, ax  ; Store the integer part of the discount
+    mov sst_int, ax  ; Store the integer part of the sst
 
     ; Store the remainder from the division in DX (this is part of the decimal)
     mov ax, dx                  ; DX contains the remainder (this is part of cents)
     mov sst_dec, ax  ; Temporarily store it in discount_amount_dec
 
     ; Calculate discount on decimal part (result_dec)
-    mov ax, total_dec          ; Load total cents into AX
-    mul bx                      ; Multiply result_dec by 10
+    mov ax, total_dec           ; Load total cents into AX
+    mul bx                      ; Multiply total_dec by 10
     div cx                      ; Divide by 100 to get the percentage
-    add sst_dec, ax  ; Add the discount from the decimal part to the remainder
+    add sst_dec, ax  ; Store the dec part of the sst
 
-    ; Handle cases where discount_amount_dec exceeds 100
+check_sst_overflow:
+    ; Handle cases where sst_dec exceeds 100
     cmp sst_dec, 100
-    jl skip_adjustment
-    ; If decimal part exceeds 100, increase discount_amount_int by 1
+    jl skip_adjustment1          ; If decimal part exceeds 100, increase sst_int by 1
     inc sst_int
-    sub sst, 100 ; Adjust the decimal part
+    sub sst, 100                ; Adjust the decimal part
+    loop check_sst_overflow
 skip_adjustment1:
     ret
 calculate_sst endp
@@ -1617,12 +1631,20 @@ calculate_after_total proc
     mov ax, total_int      ; Load total RM (integer part) into AX
     sub ax, discount_int   ; Subtract discount_int from total_int
     add ax, sst_int        ; Add sst_int to total_int
-    mov after_total_int, ax      ; Store the result back into total_int
+    mov after_total_int, ax      ; Store the result back into after_total_int
     
     mov ax, total_dec      ; Load total RM (integer part) into AX
     sub ax, discount_dec   ; Subtract discount_int from total_int
     add ax, sst_dec        ; Add sst_int to total_int
-    mov after_total_dec, ax      ; Store the result back into total_int
+check_overflow:
+    cmp ax, 100            ; Check if decimal part exceeds 100
+    jl skip_adjustment2    ; If less than 100, then skip the overflow handling
+    inc after_total_int    ; Increase integer part by 1
+    sub ax, 100            ; Adjust the decimal part
+    loop check_overflow    ; Loops until it is less than 100
+
+skip_adjustment2:
+    mov after_total_dec, ax      ; Store the result back into after_total_dec
 
     ret
 calculate_after_total endp
@@ -1633,7 +1655,7 @@ display_after_total proc
 
     ; Display the decimal point
     lea si, buffer
-    add si, 3                    ; Move to 4th position
+    add si, 3                    ; move to 4th position
     mov byte ptr [si], '.'       ; Insert decimal point
 
     mov ax, after_total_dec  ; Load discounted cents (decimal part)
@@ -1656,7 +1678,7 @@ display_discount proc
 
     ; Display the decimal point
     lea si, buffer
-    add si, 3                    ; Move to 4th position
+    add si, 3                    ; move to 4th position
     mov byte ptr [si], '.'       ; Insert decimal point
 
     mov ax, discount_dec  ; Load discounted cents (decimal part)
@@ -1676,7 +1698,7 @@ display_sst proc
 
     ; Display the decimal point
     lea si, buffer
-    add si, 3                    ; Move to 4th position
+    add si, 3                    ; move to 4th position
     mov byte ptr [si], '.'       ; Insert decimal point
 
     mov ax, sst_dec  ; Load discounted cents (decimal part)
@@ -1703,7 +1725,7 @@ convert_loop_int_discount:
     div bx                       ; Divide AX by 10, remainder in DX
     add dl, 30h                  ; Convert remainder to ASCII
     mov [si], dl                 ; Store ASCII in buffer
-    dec si                       ; Move to next buffer position
+    dec si                       ; move to next buffer position
     loop convert_loop_int_discount
 
     ; Remove leading zeroes
@@ -1713,7 +1735,7 @@ remove_leading_zeros_discount:
     cmp byte ptr [si], '0'       ; Check for leading '0'
     jne skip_zero_removal        ; If not '0', stop removing
     mov byte ptr [si], ' '       ; Replace '0' with space
-    inc si                       ; Move to the next byte
+    inc si                       ; move to the next byte
     loop remove_leading_zeros_discount
 
 skip_zero_removal:
@@ -1725,7 +1747,7 @@ display_integer_part endp
 ;-----------------------------------
 display_decimal_part proc
     lea si, buffer               ; Load buffer into SI
-    add si, 5                    ; Move to the position after the decimal point
+    add si, 5                    ; move to the position after the decimal point
     mov cx, 2                    ; Two digits for the decimal part
 
 convert_loop_dec_discount:
@@ -1734,7 +1756,7 @@ convert_loop_dec_discount:
     div bx                       ; Divide AX by 10, remainder in DX
     add dl, 30h                  ; Convert remainder to ASCII
     mov [si], dl                 ; Store ASCII in buffer
-    dec si                       ; Move back in buffer
+    dec si                       ; move back in buffer
     loop convert_loop_dec_discount
     ret
 display_decimal_part endp
@@ -1763,9 +1785,9 @@ display_receipt_product proc ;Display Product
     mov bl, product_id          ; Load product_id into BL
     dec bl                      ; Adjust for 0-based index
     mov bh, 0                   ; Clear BH
-    mov si, bx                  ; Move BX (product_id value) into SI
+    mov si, bx                  ; move BX (product_id value) into SI
     mov al, product_lengths[si] ; Get the length of the product name
-    mov cl, al                  ; Move length into CL
+    mov cl, al                  ; move length into CL
     mov ch, 0                   ; Clear high byte of CX
 
     ; Calculate the offset for the selected product name
@@ -1827,6 +1849,150 @@ add_space_loop:
     ret
 add_spaces endp
 
+;-------------------------------
+; Procedure for displaying HELP
+;-------------------------------
 
+help_menu proc
+    call clear_screen
+    call display_company_colour_name
+
+   ; Display welcome message
+    lea SI, msg_help
+    call slow_display
+
+help_loop:
+    ; Display options
+    mov AH, 09h
+    lea DX, msg_options
+    int 21h
+
+    ; Prompt for user input
+    mov AH, 09h
+    lea DX, prompt_help
+    int 21h
+
+    ; Get user input
+    mov AH, 01h
+    int 21h
+
+    ; Convert ASCII to number (1-4)
+    sub AL, '0'
+
+    ; Check if input is valid (1-4)
+    cmp AL, 1
+    JL invalid_help_input
+    cmp AL, 4
+    JG invalid_help_input
+
+    ; Jump to appropriate option explanation
+    cmp AL, 1
+    je option1
+    cmp AL, 2
+    je option2
+    cmp AL, 3
+    je option3
+    cmp AL, 4
+    je option4
+
+option1:
+    mov AH, 09h
+    lea DX, newline
+    int 21h
+    lea SI, help_option1
+    jmp display_help_option
+
+option2:
+    mov AH, 09h
+    lea DX, newline
+    int 21h
+    lea SI, help_option2
+    jmp display_help_option
+
+option3:
+    mov AH, 09h
+    lea DX, newline
+    int 21h
+    lea SI, help_option3
+    jmp display_help_option
+
+option4:
+    ret
+
+display_help_option:
+    call slow_display
+    
+    ; Display "Press Enter to continue" message
+    mov AH, 09h
+    lea DX, msg_continue
+    int 21h
+
+    ; Wait for Enter key
+    mov AH, 01h
+    int 21h
+
+    call clear_screen
+    call display_company_colour_name
+
+    mov ah, 09h
+    lea dx, msg_help
+    int 21h
+
+    jmp help_loop
+
+invalid_help_input:
+    mov AH, 09h
+    lea DX, newline
+    int 21h
+    lea DX, msg_invalid_help
+    int 21h
+    ; Display "Press Enter to continue" message
+    lea DX, msg_continue
+    int 21h
+    ; Wait for Enter key
+    mov AH, 01h
+    int 21h
+
+    mov AH, 09h
+    lea DX, newline
+    int 21H
+    jmp help_loop
+
+help_menu endp
+
+slow_display PROC ; Displays characters slowly
+next_char:
+    mov AL, [SI]              ; Load the next character from the message
+    cmp AL, '$'               ; Check if it's the end of the string
+    je done_slow_display                   ; If yes, exit the loop
+
+    ; Display the character
+    mov AH, 0Eh               ; BIOS Teletype output function (output 1 char on screen)
+    mov BH, 0                 ; Page number (0 for standard output)
+    mov BL, 7                 ; Text attribute (white text)
+    int 10H                   ; Interrupt to display character
+
+    call delay                ; Call the delay function
+
+    inc SI                    ; Move to the next character
+    jmp next_char              ; Repeat the loop
+
+done_slow_display:
+    ret
+slow_display ENDP
+
+; Simple delay procedure to slow down the display
+delay proc
+    mov cx, 00002H            ; Set CX for outer loop
+delay_loop:                    ; Outer loop count for delay
+    push cx
+    mov cx, 08FFFH            ; Set CX for inner loop
+    delay_loop2:               ; Inner loop count for delay
+    nop                       ; No operation
+    loop delay_loop2           ; Decrement CX and repeat until CX = 0
+    pop CX
+    loop delay_loop            ; Decrement CX and repeat until CX = 0
+    ret
+delay endp
 
 end main
