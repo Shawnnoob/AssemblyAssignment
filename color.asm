@@ -166,9 +166,6 @@
 
 
     ;--------------------------------Cashbox----------------------------------------------------
-    ; Cashbox total
-    ;cashbox_total dw 2680  ; Cashbox starts with 0 total
-
     ;Message for cashbox
     cashbox_header  db '-------------------------', 0Dh, 0Ah
                     db '     Cashbox Summary     ', 0Dh, 0Ah
@@ -192,7 +189,8 @@ main proc
 
     call login ; Will terminate program if login attempt exceeds 3 times
 
-success_login: ; Clear the input_buffer
+success_login: 
+    ; Clear the input_buffer
     mov si, OFFSET input_buffer  ; Load the starting address of input_buffer into SI
     mov cx, 20                   ; Load the size of the buffer (50 bytes) into CX
     mov al, 0                    ; We will fill the buffer with 0 (null)
@@ -240,12 +238,12 @@ to_option_3:
     jmp to_option_4
 option_3_jmp:
     jmp option_3
-option_4_jmp:
-    jmp option_4
 to_option_4:
     cmp al,'4'
     je option_4_jmp
     jmp to_option_5
+option_4_jmp:
+    jmp option_4
 to_option_5:
     cmp al, '5'
     je exit_program_jmp
@@ -464,8 +462,6 @@ display_receipt_loop:
     ; Add to total for RM
     add total_int, ax
 
-    call update_cashbox
-
     ; Calculate subtotal for cents
     shl si, 1
     mov ax, preset_price_dec[si]
@@ -495,6 +491,8 @@ display_receipt_loop:
     mov bx, 0                   ; Set BX to 0
     mov ax, 0                   ; Set AX to 0
     mov result_overflow, ax     ; Clear result_overflow to 0
+
+    call update_cashbox
 
     push si             ; Save SI value
     call display_price
@@ -566,6 +564,11 @@ display_total:
     mov ah, 01h
     int 21h
 
+    ; Clear the total variables
+    mov ax, 0
+    mov total_int, ax
+    mov total_dec, ax
+
     pop si
     pop ax
     pop bx
@@ -603,11 +606,13 @@ option_2:
 
 option_3:
     ; Placeholder for Show cashbox
-    jmp display_cashbox_total
+    call display_cashbox_total
+    jmp menu_loop
 
 option_4:
     ; restock model
-    jmp restock_proc
+    call restock_proc
+    jmp menu_loop
 
 exit_program:
     mov ah, 09h
@@ -1509,7 +1514,7 @@ Enter_to_process proc
     mov ah, 09h
     lea dx, printing
     int 21h
-    mov ah, 07h
+    mov ah, 01h
     int 21h
     ret
 Enter_to_process endp
@@ -1594,10 +1599,10 @@ add_spaces endp
 
 update_cashbox proc
     ; Add transaction total to cashbox total
-    ;mov ax, total_int
+    mov ax, result_int
     add cashbox_total_int, ax
-   ; mov ax, total_dec
-   add cashbox_total_dec, ax
+    mov ax, result_dec
+    add cashbox_total_dec, ax
     
     ; Handle overflow from cents to dollars
     mov ax, cashbox_total_dec
@@ -1626,7 +1631,7 @@ display_cashbox_total proc
     mov ax, cashbox_total_dec   ; Load cents into AX
     mov bx, 100                 ; Move BX to 100 for division
     div bx                      ; AX = AX / BX, remainder goes to DX
-    mov cashbox_overflow, ax     ; Move AX (overflow) to result_overflow
+    mov cashbox_overflow, ax    ; Move AX (overflow) to result_overflow
     mov cashbox_total_dec, dx   ; Move DX (remainder (cents)) to cashbox_total_dec
     
     ; Add the overflow to RM
