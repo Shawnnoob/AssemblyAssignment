@@ -24,7 +24,7 @@
     product_menu db "==========================================", 0dh, 0ah
                  db "|         Products           | Price(RM) |", 0dh, 0ah
                  db "|----------------------------|-----------|", 0dh, 0ah
-                 db "| 1. Tissue                  |    4.20   |", 0dh, 0ah
+                 db "| 1. Tissue                  |    3.20   |", 0dh, 0ah
                  db "| 2. Toothpaste              |   13.20   |", 0dh, 0ah
                  db "| 3. Body Wash               |   18.90   |", 0dh, 0ah
                  db "| 4. Lotion                  |   21.00   |", 0dh, 0ah
@@ -53,7 +53,7 @@
     quantity db ?                   ; Buffer to store quantity user inputs
 
     ; Variable for calculations
-    preset_price_int dw 4, 13, 18, 21    ; Price in RM
+    preset_price_int dw 3, 13, 18, 21    ; Price in RM
     preset_price_dec dw 20, 20, 90, 00  ; Price in cents
 
     result_int dw ?             ; Variable to store RM result
@@ -561,8 +561,6 @@ display_receipt_loop:
     mov ax, 0                   ; Set AX to 0
     mov result_overflow, ax     ; Clear result_overflow to 0
 
-    call update_cashbox
-
     push si             ; Save SI value
     call display_price
     pop si              ; Load SI value
@@ -649,6 +647,7 @@ jmp_sst:
 
     call calculate_after_total
     call display_after_total
+    call update_cashbox
 
 
     mov ah,09h
@@ -671,6 +670,20 @@ jmp_sst:
     mov ax, 0
     mov total_int, ax
     mov total_dec, ax
+    mov after_total_int, ax
+    mov after_total_dec, ax
+    mov discount_int, ax
+    mov discount_dec, ax
+    mov sst_int, ax
+    mov sst_dec, ax
+
+    ; Clear buffer
+    mov cx, 6               ; Clear 6 bytes of buffer (Leave $ for last)
+    lea si, buffer           ; Load the offset of the buffer into SI
+clear_buffer:
+    mov byte ptr [si], 0     ; Set the current byte in buffer to 0
+    inc si                   ; move to the next byte
+    loop clear_buffer
 
     pop si
     pop ax
@@ -714,11 +727,32 @@ not_enough_stock:
 option_2:
     ; Cashbox module
     call display_cashbox_total
+    ; Clear buffer
+    mov cx, 6               ; Clear 6 bytes of buffer (Leave $ for last)
+    lea si, buffer           ; Load the offset of the buffer into SI
+clear_buffer2:
+    mov byte ptr [si], 0     ; Set the current byte in buffer to 0
+    inc si                   ; move to the next byte
+    loop clear_buffer2
+    ; Clear cashbox buffer
+    mov cx, 6               ; Clear 6 bytes of buffer (Leave $ for last)
+    lea si, cashbox_buffer           ; Load the offset of the buffer into SI
+clear_cashbox_buffer:
+    mov byte ptr [si], 0     ; Set the current byte in buffer to 0
+    inc si                   ; move to the next byte
+    loop clear_cashbox_buffer
     jmp menu_loop
 
 option_3:
     ; Restock module
     call restock_proc
+    ; Clear buffer
+    mov cx, 6               ; Clear 6 bytes of buffer (Leave $ for last)
+    lea si, buffer           ; Load the offset of the buffer into SI
+clear_buffer3:
+    mov byte ptr [si], 0     ; Set the current byte in buffer to 0
+    inc si                   ; move to the next byte
+    loop clear_buffer3
     jmp menu_loop
 
 option_4:
@@ -1684,7 +1718,7 @@ calculate_after_total proc
     add ax, sst_int        ; Add sst_int to total_int
     mov after_total_int, ax      ; Store the result back into after_total_int
     
-    mov ax, total_dec      ; Load total RM (integer part) into AX
+    mov ax, total_dec      ; Load total RM (decimal part) into AX
     sub ax, discount_dec   ; Subtract discount_int from total_int
     add ax, sst_dec        ; Add sst_int to total_int
 check_overflow:
@@ -2063,9 +2097,9 @@ delay endp
 
 update_cashbox proc
     ; Add transaction total to cashbox total
-    mov ax, result_int
+    mov ax, after_total_int
     add cashbox_total_int, ax
-    mov ax, result_dec
+    mov ax, after_total_dec
     add cashbox_total_dec, ax
     
     ; Handle overflow from cents to dollars
@@ -2185,7 +2219,7 @@ convert_loop_dec_cashbox:
     ret
 display_price_cashbox endp
 
-display_company_menu_colour_name proc ;Thee Chern Hao
+display_company_menu_colour_name proc ; Display company menu with color
     ; Save registers to preserve their original values
     push ax
     push bx
