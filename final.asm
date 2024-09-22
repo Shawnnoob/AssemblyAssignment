@@ -113,7 +113,7 @@
 
 
     print   db "Do you want to print the receipt?", 0dh, 0ah
-            db "      a - Yes  b - No            ", 0dh, 0ah
+            db "      Y - Yes  N - No            ", 0dh, 0ah
             db "$"
 
     enter_choice db "Enter your choice: $", 0dh, 0ah
@@ -434,12 +434,27 @@ valid_quantity_3:
 handle_cancellation:
     ; Display a message indicating that the purchase was canceled
     mov ah, 09h
+    lea dx,newline
+    int 21h
     lea dx, msg_purchase_cancelled ; "Purchase has been canceled."
     int 21h
 
     ; Pause for user to read the message
     mov ah, 01h
     int 21h
+
+reset_data:   
+    mov cx, 4              ; Number of elements in the product_qty array
+    lea si, product_qty     ; Load the offset of the product_qty array into SI
+reset_qty:
+    mov byte ptr [si], 0    ; Set the current element to 0
+    inc si                  ; move to the next element in the array
+    loop reset_qty           ; Repeat until CX becomes 0
+
+    ; Clear buffer
+    mov cx, 6               ; Clear 6 bytes of buffer (Leave $ for last)
+    lea si, buffer           ; Load the offset of the buffer into SI
+
 
     ; Optionally, return to the main menu or another process
     jmp menu_loop                 ; Jump back to the main menu or another process 
@@ -1442,12 +1457,13 @@ confirm_purchase proc
     cmp al, 'N'                 
     je purchase_cancelled        
 
+
     mov ah, 09h
+    lea dx, nextline
+    int 21h
     lea dx, error
     int 21h
-
-    mov ah, 01h
-    int 21h
+    
     ; If input is invalid, ask again (simple loop)
     jmp confirm_purchase         ; Loop back if neither Y nor N
 
@@ -1500,7 +1516,7 @@ done_reduce_stock:
     ret
 reduce_stock endp
 
-;---------------------------------------------receipt------------------------------------
+;Receipt------------------------------------
 
 
 display_receipt_heading proc
@@ -1532,11 +1548,18 @@ testing:
     call printString 
     call captureChar
     
-    cmp al, 'a'
+    cmp al, 'Y'
     je PrintReceipt
-    cmp al, 'b'
+    cmp al, 'y'
+    je PrintReceipt
+    cmp al, 'n'
+    je NoPrint
+    cmp al, 'N'
     je NoPrint
     
+    mov ah,09h
+    lea dx,newline
+    int 21h
     lea si,error
     call printString
     jmp testing
