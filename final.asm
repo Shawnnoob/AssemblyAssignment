@@ -24,10 +24,10 @@
     product_menu db "==========================================", 0dh, 0ah
                  db "|         Products           | Price(RM) |", 0dh, 0ah
                  db "|----------------------------|-----------|", 0dh, 0ah
-                 db "| 1. Tissue                  |    1.20   |", 0dh, 0ah
+                 db "| 1. Tissue                  |    4.20   |", 0dh, 0ah
                  db "| 2. Toothpaste              |   13.20   |", 0dh, 0ah
-                 db "| 3. Body Wash               |   17.90   |", 0dh, 0ah
-                 db "| 4. Cotton Buds             |    1.00   |", 0dh, 0ah
+                 db "| 3. Body Wash               |   18.90   |", 0dh, 0ah
+                 db "| 4. Lotion                  |   21.00   |", 0dh, 0ah
                  db "------------------------------------------", 0dh, 0ah, 0
 
     newline db 0dh,0ah,'$'
@@ -43,7 +43,7 @@
     product_a db 'Tissue     ', 0
     product_b db 'Toothpaste ', 0
     product_c db 'Body Wash  ', 0
-    product_d db 'Cotton Buds', 0
+    product_d db 'Lotion     ', 0
 
     product_lengths db 11, 11, 11, 11     ; Lengths of each product name
     product_qty db 0, 0, 0, 0             ; Chosen quantity for each product
@@ -53,7 +53,7 @@
     quantity db ?                   ; Buffer to store quantity user inputs
 
     ; Variable for calculations
-    preset_price_int dw 1, 13, 17, 1    ; Price in RM
+    preset_price_int dw 4, 13, 18, 21    ; Price in RM
     preset_price_dec dw 20, 20, 90, 00  ; Price in cents
 
     result_int dw ?             ; Variable to store RM result
@@ -72,7 +72,7 @@
     msg_failure_login db 'Incorrect username/password. Please try again.$'
     msg_attempts_finished db 'Too many failed attempts. Exiting program...$'
 
-    prompt_menu_choice db 'Enter your choice (1-4): $'
+    prompt_menu_choice db 'Enter your choice (1-5): $'
     prompt_product_id db 'Enter product ID: $'
     prompt_quantity db 'Enter quantity (1-3): $'
     prompt_more_product db 'Do you want to buy more products? (Y/N): $'
@@ -81,7 +81,7 @@
     msg_invalid_product db 13, 10, 'Invalid product ID. Enter to try again.$'
     msg_invalid_quantity db 13, 10, 'Invalid input/quantity. Enter to try again.$'
     msg_invalid_input db 'Invalid input. Enter to try again with a correct number. $'
-    msg_exit db 'Exiting program. Thank you for using ABC Retail! $'
+    msg_exit db 'Exiting program. Thank you for using our POS system! $'
     msg_max_quantity db 13, 10, 'Maximum quantity reached for this product. Enter to continue.$'
     msg_subtotal db 'Subtotal: RM$'
     msg_total db 'Total: RM$'
@@ -131,7 +131,7 @@
 ;----------------------------------------------addStock------------------------------
     error db "Invalid input please try again.$"
     Pause_Msg db "Press any key to continue...$",0dh,0ah
-    Restock_Msg db "Enter the (1,2,3,4) to restock the product:$",0dh,0ah
+    Restock_Msg db "Enter (1,2,3,4) to restock the product, x to exit: $",0dh,0ah
 
     restock_heading   db "===========================================", 0dh, 0ah
                       db "|              Add stock                   |", 0dh, 0ah
@@ -160,13 +160,13 @@
     product_1   db "1. Tissue                  $"
     product_2   db "2. Toothpaste              $"
     product_3   db "3. Body Wash               $"
-    product_4   db "4. Cotton Buds             $"
-    restock_Exit db    "x.Exit$"
+    product_4   db "4. Lotion                  $"
+    restock_Exit db    "X. Exit$"
     
     restock_x db 0
     restock_y db 0     
     product_qty_store db 3, 6, 9, 5
-    msg_confirm_purchase db "Do you want to purchase?(Y/N):$"
+    msg_confirm_purchase db "Do you want to purchase? (Y/N)         :$"
     msg_purchase_cancelled db "The purchase cancelled.$"
     confirmation_flag db 0
     space_padding db '    ', 24h     ; Four spaces for padding
@@ -214,8 +214,6 @@
                     db '-------------------------', 0Dh, 0Ah, 0
     cashbox_total_msg      db 'Cashbox Total: RM', '$'
     msg_continue_1         db  'Press enter to continue...', '$'
-    ;formatted_total_buffer db 6 dup(0)         ; Reserve 6 bytes for formatted price (e.g. 123.45)
-    ;cashbox_cents          dw ?
     cashbox_total_int dw 0
     cashbox_total_dec dw 0
     cashbox_overflow  dw ?
@@ -225,7 +223,6 @@
 
     ;--------------------------------Sound---------------------------------------------------------
     sound1 dw 6370h	; frequency for tone1 (440 Hz)
-	newline_music db 0dh,0ah,"$"
 
 .code
 
@@ -617,19 +614,6 @@ display_total:
 
     call calculate_discount
     call display_discount
-
-     ; Play sound1 (440 Hz)
-	mov ax, sound1
-	call PlayTone
-	mov ah,09h
-	lea dx,newline_music
-	int 21h
-
-	; Stop sound1
-	call StopTone
-	mov ah,09h
-	lea dx,newline_music
-	int 21h
     
 jmp_sst:
     mov ah,09h
@@ -714,7 +698,8 @@ not_enough_stock:
 
 option_2:
     ; Cashbox module
-    jmp display_cashbox_total
+    call display_cashbox_total
+    jmp menu_loop
 
 option_3:
     ; Restock module
@@ -1295,6 +1280,8 @@ captureTwoNum endp
 
 Pause proc
     mov ah,09h
+    lea dx, newline
+    int 21h
     lea dx,Pause_Msg
     int 21h
     mov ah,07h
@@ -1306,9 +1293,10 @@ Pause endp
 
 warning proc
     call nextLine
-    lea si,error
+    mov ah, 09h
+    lea dx, error
+    int 21h
     call Pause
-    call clear_screen
     ret
 warning endp    
     
@@ -1378,7 +1366,7 @@ restockB:
 restockC:
     mov di,2
     cmp product_qty_store[di],20
-    jg warning1
+    jg warning1_jmp
     call nextLine
     call captureTwoNum
     add product_qty_store[di],bl
@@ -1394,7 +1382,7 @@ restockC:
 restockD:
     mov di,3
     cmp product_qty_store[di],20
-    jg warning1
+    jg warning1_jmp
     call nextLine
     call captureTwoNum
     add product_qty_store[di],bl
@@ -1406,6 +1394,10 @@ restockD:
     call clear_screen
 
     jmp restock_Screen
+
+warning1_jmp:
+    jmp warning1
+
 restockA1:
     jmp restockA
 restockB1:
@@ -1550,9 +1542,9 @@ testing:
     jmp testing
 
 PrintReceipt:
-    mov ah, 09h
-    lea dx, newline
-    int 21h
+
+	lea dx, newline
+	int 21h
 
     call Enter_to_process  ; call printing procedure
     jmp clear_data
@@ -1642,7 +1634,7 @@ calculate_sst proc
 
     ; Store the remainder from the division in DX (this is part of the decimal)
     mov ax, dx                  ; DX contains the remainder (this is part of cents)
-    mov sst_dec, ax  ; Temporarily store it in discount_amount_dec
+    mov sst_dec, ax  ; Store the decimal part of the sst
 
     ; Calculate discount on decimal part (result_dec)
     mov ax, total_dec           ; Load total cents into AX
@@ -1766,7 +1758,7 @@ convert_loop_int_discount:
 
     ; Remove leading zeroes
     lea si, buffer               ; Point SI to start of buffer
-    mov cx, 3                    ; Check the first 3 digits
+    mov cx, 2                    ; Check the first 2 digits
 remove_leading_zeros_discount:
     cmp byte ptr [si], '0'       ; Check for leading '0'
     jne skip_zero_removal        ; If not '0', stop removing
@@ -1802,6 +1794,17 @@ Enter_to_process proc
     mov ah, 09h
     lea dx, printing
     int 21h
+
+     ; Play sound1 (440 Hz)
+	mov ax, sound1
+	call PlayTone
+
+	; Stop sound1
+	call StopTone
+	mov ah,09h
+	lea dx, newline
+	int 21h
+
     mov ah, 07h
     int 21h
     ret
@@ -1980,6 +1983,8 @@ invalid_help_input:
     int 21h
     lea DX, msg_invalid_help
     int 21h
+    lea dx, newline
+    int 21h
     ; Display "Press Enter to continue" message
     lea DX, msg_continue
     int 21h
@@ -1987,9 +1992,13 @@ invalid_help_input:
     mov AH, 01h
     int 21h
 
-    mov AH, 09h
-    lea DX, newline
-    int 21H
+    call clear_screen
+    call display_company_colour_name
+
+    mov ah, 09h
+    lea dx, msg_help
+    int 21h
+
     jmp help_loop
 
 help_menu endp
@@ -2021,7 +2030,7 @@ delay proc
 delay_loop:                    ; Outer loop count for delay
     push cx
     mov cx, 08FFFH            ; Set CX for inner loop
-    delay_loop2:               ; Inner loop count for delay
+delay_loop2:               ; Inner loop count for delay
     nop                       ; No operation
     loop delay_loop2           ; Decrement CX and repeat until CX = 0
     pop CX
@@ -2119,7 +2128,7 @@ convert_cashbox_loop_int:
 
     ; Remove leading zeros for RM
     lea si, cashbox_buffer          ; Points SI to starting address of buffer
-    mov cx, 3               ; We'll check the first 3 digits (before the decimal point / end string)
+    mov cx, 2               ; We'll check the first 2 digits (leave 1 digit of 0)
 remove_leading_zeros_cashbox:
     cmp byte ptr [si], '0'  ; Check for leading '0'
     jne convert_cents_cashbox       ; If found non-zero number, break from loop
@@ -2604,8 +2613,13 @@ PlayTone proc
 	out 61h, al
 
 	; Delay for the tone duration
-	mov cx, 0FFFFh
+	mov cx, 00020h
 delay_sound_loop:
+    push cx
+    mov cx, 0FFFFh
+delay_sound_loop2:
+    loop delay_sound_loop2
+    pop cx
 	loop delay_sound_loop
 
 	ret
